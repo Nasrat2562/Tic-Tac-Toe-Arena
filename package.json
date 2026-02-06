@@ -1,24 +1,21 @@
 {
-  "name": "multiplayer-tic-tac-toe",
+  "name": "tic-tac-toe-arena",
   "version": "1.0.0",
-  "description": "Real-time multiplayer Tic-Tac-Toe game",
+  "description": "Real-time multiplayer TicTacToe game",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "build": "echo 'No build required for this project'"
+    "build": "echo 'No build required'"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "socket.io": "^4.5.0",
-    "sqlite3": "^5.1.6",
-    "cors": "^2.8.5",
-    "dotenv": "^16.0.3"
+    "socket.io": "^4.5.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=14.0.0"
   }
 }
