@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Game management
 const games = {};
 const users = {};
-const userStatistics = {}; // Store user statistics
+const userStatistics = {}; // Single source of truth for stats
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -161,18 +161,23 @@ io.on('connection', (socket) => {
             gameOver = true;
             if (result === 'draw') {
                 winner = 'draw';
-                // Update draws for both players
+                // Update draws for both players - SERVER ONLY UPDATES
                 game.players.forEach(player => {
                     if (userStatistics[player]) {
                         userStatistics[player].draws++;
                         userStatistics[player].gamesPlayed++;
+                        // Send updated stats to player
+                        const playerSocket = getSocketByUsername(player);
+                        if (playerSocket) {
+                            playerSocket.emit('user-stats', userStatistics[player]);
+                        }
                     }
                 });
             } else {
                 winner = result === 'X' ? game.players[0] : game.players[1];
                 const loser = game.players.find(p => p !== winner);
                 
-                // Update winner stats
+                // Update winner stats - SERVER ONLY UPDATES
                 if (userStatistics[winner]) {
                     userStatistics[winner].wins++;
                     userStatistics[winner].gamesPlayed++;
@@ -183,7 +188,7 @@ io.on('connection', (socket) => {
                     }
                 }
                 
-                // Update loser stats
+                // Update loser stats - SERVER ONLY UPDATES
                 if (userStatistics[loser]) {
                     userStatistics[loser].losses++;
                     userStatistics[loser].gamesPlayed++;
@@ -287,7 +292,7 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Chat message
+    // Chat message - FIXED: Prevent duplicate messages
     socket.on('chat-message', (data) => {
         const { gameId, sender, message } = data;
         const game = games[gameId];
@@ -299,8 +304,15 @@ io.on('connection', (socket) => {
         
         console.log(`Chat message from ${sender} in game ${gameId}: ${message}`);
         
-        // Broadcast to all players in the game
-        io.to(gameId).emit('chat-message', {
+        // First, send confirmation back to sender with their message
+        socket.emit('chat-message-sent', {
+            sender: sender,
+            message: message,
+            timestamp: new Date().toISOString()
+        });
+        
+        // Then broadcast to other players in the game
+        socket.to(gameId).emit('chat-message', {
             sender: sender,
             message: message,
             timestamp: new Date().toISOString()
@@ -311,13 +323,24 @@ io.on('connection', (socket) => {
     socket.on('get-stats', ({ username }) => {
         if (userStatistics[username]) {
             socket.emit('user-stats', userStatistics[username]);
+        } else {
+            // Initialize if not exists
+            userStatistics[username] = {
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                username: username
+            };
+            socket.emit('user-stats', userStatistics[username]);
         }
     });
     
-    // Update user stats
+    // Update user stats (from client) - only used for synchronization
     socket.on('update-stats', ({ username, stats }) => {
-        if (userStatistics[username]) {
-            userStatistics[username] = { ...userStatistics[username], ...stats };
+        // Only update if server doesn't have stats or client has newer data
+        if (!userStatistics[username] || stats.gamesPlayed > userStatistics[username].gamesPlayed) {
+            userStatistics[username] = { ...stats };
         }
     });
     
