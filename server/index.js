@@ -2,9 +2,12 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
+
+// Configure Socket.io
 const io = socketIo(server, {
     cors: {
         origin: "*",
@@ -12,14 +15,46 @@ const io = socketIo(server, {
     }
 });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, '../public')));
+// Fix MIME types for static files
+app.use((req, res, next) => {
+    const ext = path.extname(req.path);
+    const mimeTypes = {
+        '.html': 'text/html',
+        '.js': 'application/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon'
+    };
+    
+    if (mimeTypes[ext]) {
+        res.setHeader('Content-Type', mimeTypes[ext]);
+    }
+    
+    next();
+});
 
-// Game management
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, '../public'), {
+    setHeaders: (res, path) => {
+        const ext = path.extname(path);
+        if (ext === '.js') {
+            res.setHeader('Content-Type', 'application/javascript');
+        } else if (ext === '.css') {
+            res.setHeader('Content-Type', 'text/css');
+        } else if (ext === '.html') {
+            res.setHeader('Content-Type', 'text/html');
+        }
+    }
+}));
+
+// Game management (same as before)
 const games = new Map();
-const users = new Map(); // socket.id -> username
+const users = new Map();
 
-// Game model
 class Game {
     constructor(id, host, name) {
         this.id = id;
@@ -28,7 +63,7 @@ class Game {
         this.players = [host];
         this.board = Array(9).fill('');
         this.currentPlayer = 'X';
-        this.status = 'waiting'; // waiting, playing, finished
+        this.status = 'waiting';
         this.winner = null;
         this.winningLine = null;
         this.createdAt = new Date();
@@ -48,19 +83,13 @@ class Game {
     makeMove(cellIndex, player) {
         if (this.status !== 'playing') return false;
         
-        // Determine player's symbol
         const playerSymbol = this.players[0] === player ? 'X' : 'O';
         
-        // Check if it's player's turn
         if (this.currentPlayer !== playerSymbol) return false;
-        
-        // Check if cell is empty
         if (this.board[cellIndex] !== '') return false;
         
-        // Make the move
         this.board[cellIndex] = playerSymbol;
         
-        // Check for win
         const result = this.checkWin();
         if (result) {
             this.status = 'finished';
@@ -68,7 +97,6 @@ class Game {
                          result.winner === 'X' ? this.players[0] : this.players[1];
             this.winningLine = result.line;
         } else {
-            // Switch player
             this.currentPlayer = this.currentPlayer === 'X' ? 'O' : 'X';
         }
         
@@ -77,9 +105,9 @@ class Game {
     
     checkWin() {
         const winPatterns = [
-            [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
-            [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
-            [0, 4, 8], [2, 4, 6]             // diagonals
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],
+            [0, 4, 8], [2, 4, 6]
         ];
         
         for (const pattern of winPatterns) {
@@ -89,7 +117,6 @@ class Game {
             }
         }
         
-        // Check for draw
         if (this.board.every(cell => cell !== '')) {
             return { winner: 'draw', line: null };
         }
@@ -112,23 +139,20 @@ class Game {
     }
 }
 
-// Socket.io connection handling
+// Socket.io events
 io.on('connection', (socket) => {
     console.log('New client connected:', socket.id);
     
-    // Register user
     socket.on('register-user', (username) => {
         users.set(socket.id, username);
         socket.username = username;
         
         console.log(`User registered: ${username}`);
         
-        // Send available games
         socket.emit('user-registered', { username });
         updateGamesList();
     });
     
-    // Create game
     socket.on('create-game', ({ host, name }) => {
         const username = users.get(socket.id);
         if (!username) {
@@ -142,20 +166,15 @@ io.on('connection', (socket) => {
         const game = new Game(gameId, username, gameName);
         games.set(gameId, game);
         
-        // Join the game room
         socket.join(gameId);
         socket.currentGameId = gameId;
         
-        console.log(`Game created: ${gameName} by ${username} (ID: ${gameId})`);
+        console.log(`Game created: ${gameName} by ${username}`);
         
-        // Send game info to creator
         socket.emit('game-created', game.getInfo());
-        
-        // Update games list for everyone
         updateGamesList();
     });
     
-    // Join game
     socket.on('join-game', ({ gameId, player }) => {
         const username = users.get(socket.id);
         if (!username) {
@@ -179,35 +198,30 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Add player to game
         const success = game.addPlayer(username);
         if (!success) {
             socket.emit('error', { message: 'Could not join game' });
             return;
         }
         
-        // Join the game room
         socket.join(gameId);
         socket.currentGameId = gameId;
         
         console.log(`${username} joined game ${gameId}`);
         
-        // Notify both players
         io.to(gameId).emit('player-joined', {
             player: username,
             game: game.getInfo()
         });
         
-        // Start the game if 2 players
         if (game.players.length === 2) {
             io.to(gameId).emit('game-started', game.getInfo());
             
-            // Send initial turn info
             game.players.forEach((playerName, index) => {
                 const playerSocket = getSocketByUsername(playerName);
                 if (playerSocket) {
                     playerSocket.emit('turn-update', {
-                        isYourTurn: index === 0, // First player (X) starts
+                        isYourTurn: index === 0,
                         yourSymbol: index === 0 ? 'X' : 'O',
                         currentPlayer: 'X'
                     });
@@ -215,11 +229,9 @@ io.on('connection', (socket) => {
             });
         }
         
-        // Update games list
         updateGamesList();
     });
     
-    // Make a move
     socket.on('make-move', ({ gameId, cellIndex, player }) => {
         const username = users.get(socket.id);
         if (!username) {
@@ -238,7 +250,6 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Make the move
         const success = game.makeMove(cellIndex, username);
         if (!success) {
             socket.emit('error', { message: 'Invalid move' });
@@ -247,7 +258,6 @@ io.on('connection', (socket) => {
         
         console.log(`${username} made move at ${cellIndex} in game ${gameId}`);
         
-        // Broadcast move to all in game room
         io.to(gameId).emit('move-made', {
             cellIndex,
             symbol: game.board[cellIndex],
@@ -256,10 +266,8 @@ io.on('connection', (socket) => {
             board: game.board
         });
         
-        // Send game update
         io.to(gameId).emit('game-update', game.getInfo());
         
-        // Send turn updates
         game.players.forEach((playerName, index) => {
             const playerSocket = getSocketByUsername(playerName);
             if (playerSocket) {
@@ -272,7 +280,6 @@ io.on('connection', (socket) => {
             }
         });
         
-        // Check if game is over
         if (game.status === 'finished') {
             io.to(gameId).emit('game-over', {
                 winner: game.winner,
@@ -280,34 +287,27 @@ io.on('connection', (socket) => {
                 board: game.board
             });
             
-            // Remove game after 30 seconds
             setTimeout(() => {
                 games.delete(gameId);
                 updateGamesList();
             }, 30000);
         }
         
-        // Update games list if game is full
         if (game.players.length === 2) {
             updateGamesList();
         }
     });
     
-    // Leave game
     socket.on('leave-game', ({ gameId, player }) => {
         const game = games.get(gameId);
         if (game) {
-            // Remove player from game
             game.players = game.players.filter(p => p !== player);
             
-            // If no players left, remove game
             if (game.players.length === 0) {
                 games.delete(gameId);
             } else {
-                // Notify remaining player
                 socket.to(gameId).emit('player-left', { player });
                 
-                // Reset game if it was playing
                 if (game.status === 'playing') {
                     game.status = 'waiting';
                     game.board = Array(9).fill('');
@@ -324,7 +324,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Chat message
     socket.on('chat-message', ({ gameId, player, message }) => {
         io.to(gameId).emit('chat-message', {
             player,
@@ -333,23 +332,18 @@ io.on('connection', (socket) => {
         });
     });
     
-    // Request rematch
     socket.on('request-rematch', ({ gameId, player }) => {
         const game = games.get(gameId);
         if (game && game.players.length === 2) {
-            // Reset game
             game.board = Array(9).fill('');
             game.status = 'playing';
             game.currentPlayer = 'X';
             game.winner = null;
             game.winningLine = null;
-            
-            // Swap players for fairness
             game.players = [game.players[1], game.players[0]];
             
             io.to(gameId).emit('rematch-started', game.getInfo());
             
-            // Send turn updates
             game.players.forEach((playerName, index) => {
                 const playerSocket = getSocketByUsername(playerName);
                 if (playerSocket) {
@@ -364,12 +358,10 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Get available games
     socket.on('get-games', () => {
         updateGamesList(socket);
     });
     
-    // Disconnect
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
         
@@ -377,17 +369,12 @@ io.on('connection', (socket) => {
         if (username) {
             users.delete(socket.id);
             
-            // Handle if user was in a game
             if (socket.currentGameId) {
                 const game = games.get(socket.currentGameId);
                 if (game) {
-                    // Remove player from game
                     game.players = game.players.filter(p => p !== username);
-                    
-                    // Notify other players
                     socket.to(socket.currentGameId).emit('player-left', { player: username });
                     
-                    // If no players left, remove game
                     if (game.players.length === 0) {
                         games.delete(socket.currentGameId);
                     }
@@ -398,7 +385,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Helper function to get socket by username
     function getSocketByUsername(username) {
         for (const [socketId, socketUser] of users.entries()) {
             if (socketUser === username) {
@@ -408,7 +394,6 @@ io.on('connection', (socket) => {
         return null;
     }
     
-    // Update games list for all or specific socket
     function updateGamesList(targetSocket = null) {
         const availableGames = Array.from(games.values())
             .filter(game => game.status === 'waiting' && game.players.length < 2)
@@ -427,11 +412,10 @@ io.on('connection', (socket) => {
         }
     }
     
-    // Send initial games list
     updateGamesList(socket);
 });
 
-// API endpoints
+// Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK',
@@ -441,9 +425,9 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-app.get('/api/games', (req, res) => {
-    const gameList = Array.from(games.values()).map(game => game.getInfo());
-    res.json(gameList);
+// Serve socket.io client from node_modules
+app.get('/socket.io/socket.io.js', (req, res) => {
+    res.sendFile(path.join(__dirname, '../node_modules/socket.io/client-dist/socket.io.js'));
 });
 
 // Catch-all route to serve index.html
