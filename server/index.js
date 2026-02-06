@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,9 +14,10 @@ const io = socketIo(server, {
     }
 });
 
-// Fix MIME types for static files
+// Fix MIME types middleware
 app.use((req, res, next) => {
-    const ext = path.extname(req.path);
+    const url = req.url || '';
+    const ext = path.extname(url);
     const mimeTypes = {
         '.html': 'text/html',
         '.js': 'application/javascript',
@@ -38,20 +38,9 @@ app.use((req, res, next) => {
 });
 
 // Serve static files from public directory
-app.use(express.static(path.join(__dirname, '../public'), {
-    setHeaders: (res, path) => {
-        const ext = path.extname(path);
-        if (ext === '.js') {
-            res.setHeader('Content-Type', 'application/javascript');
-        } else if (ext === '.css') {
-            res.setHeader('Content-Type', 'text/css');
-        } else if (ext === '.html') {
-            res.setHeader('Content-Type', 'text/html');
-        }
-    }
-}));
+app.use(express.static(path.join(__dirname, '../public')));
 
-// Game management (same as before)
+// Game management
 const games = new Map();
 const users = new Map();
 
@@ -425,9 +414,9 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Serve socket.io client from node_modules
+// Serve socket.io client
 app.get('/socket.io/socket.io.js', (req, res) => {
-    res.sendFile(path.join(__dirname, '../node_modules/socket.io/client-dist/socket.io.js'));
+    res.sendFile(require.resolve('socket.io-client/dist/socket.io.js'));
 });
 
 // Catch-all route to serve index.html
