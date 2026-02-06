@@ -32,5 +32,5 @@ Render will automatically deploy your application. The free instance may take a 
 
 1. **Clone the repository:**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Nasrat2562/Tic-Tac-Toe-Arena
 cd tic-tac-toe
