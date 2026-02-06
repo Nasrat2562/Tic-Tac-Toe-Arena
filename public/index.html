@@ -3,107 +3,377 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TicTacToe Arena - Multiplayer</title>
+    <title>🎮 TicTacToe Arena - Multiplayer</title>
+    
+    <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="style.css">
+    
+    <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>❌</text></svg>">
+    
+    <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --success: #4cc9f0;
+            --danger: #f72585;
+            --warning: #f8961e;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --bg-dark: #121212;
+            --bg-card: #1e1e1e;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            border: 2px solid rgba(67, 97, 238, 0.3);
+        }
+        
+        .game-cell {
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 3px solid var(--primary);
+            border-radius: 15px;
+            font-size: 4rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .game-cell:hover:not(.disabled) {
+            background: rgba(67, 97, 238, 0.2);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(67, 97, 238, 0.3);
+        }
+        
+        .game-cell.x {
+            color: #4cc9f0;
+            text-shadow: 0 0 20px rgba(76, 201, 240, 0.7);
+        }
+        
+        .game-cell.o {
+            color: #f8961e;
+            text-shadow: 0 0 20px rgba(248, 150, 30, 0.7);
+        }
+        
+        .game-cell.disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+            transform: none !important;
+        }
+        
+        .game-cell.winning {
+            animation: pulse 1s infinite;
+            background: rgba(248, 150, 30, 0.1);
+            border-color: #f8961e;
+        }
+        
+        .player-badge {
+            padding: 8px 15px;
+            border-radius: 10px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .player-x {
+            background: rgba(76, 201, 240, 0.2);
+            border-left: 4px solid #4cc9f0;
+        }
+        
+        .player-o {
+            background: rgba(248, 150, 30, 0.2);
+            border-left: 4px solid #f8961e;
+        }
+        
+        .turn-indicator {
+            font-size: 1.2rem;
+            font-weight: 600;
+            padding: 12px 25px;
+            border-radius: 15px;
+            margin: 20px 0;
+            animation: glow 2s infinite alternate;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 10px;
+            box-shadow: 0 0 10px currentColor;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        @keyframes glow {
+            from { box-shadow: 0 0 10px currentColor; }
+            to { box-shadow: 0 0 20px currentColor; }
+        }
+        
+        .chat-messages {
+            height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .chat-message {
+            margin-bottom: 10px;
+            padding: 10px 15px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 3px solid var(--primary);
+        }
+        
+        .chat-message.system {
+            background: rgba(248, 150, 30, 0.1);
+            border-left-color: var(--warning);
+            font-style: italic;
+        }
+        
+        .chat-message.own {
+            background: rgba(67, 97, 238, 0.15);
+            border-left-color: var(--primary);
+            text-align: right;
+        }
+        
+        .game-list-item {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+            margin-bottom: 10px;
+            border-radius: 10px;
+        }
+        
+        .game-list-item:hover {
+            transform: translateX(5px);
+            border-left-color: var(--primary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .stat-card {
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--primary);
+            text-shadow: 0 0 10px rgba(67, 97, 238, 0.5);
+        }
+        
+        .btn-glow {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border: none;
+            padding: 12px 25px;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-glow:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(67, 97, 238, 0.4);
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--secondary);
+        }
+    </style>
 </head>
-<body class="bg-dark text-light">
+<body class="text-light">
     <!-- Header -->
-    <nav class="navbar navbar-dark bg-dark border-bottom border-secondary">
+    <nav class="navbar navbar-dark py-3">
         <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="/">
-                <i class="bi bi-controller fs-3 me-2 text-primary"></i>
-                <h1 class="h4 mb-0">TicTacToe Arena</h1>
-            </a>
-            <div class="d-flex align-items-center">
-                <span id="username-display" class="me-3 text-warning">Guest</span>
-                <div id="connection-status" class="status-indicator bg-danger"></div>
+            <div class="navbar-brand d-flex align-items-center gap-3">
+                <div class="bg-primary rounded-circle p-2">
+                    <i class="bi bi-controller fs-3"></i>
+                </div>
+                <div>
+                    <h1 class="h3 mb-0 fw-bold">TicTacToe Arena</h1>
+                    <p class="mb-0 small text-muted">Real-time Multiplayer Battles</p>
+                </div>
+            </div>
+            
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-center">
+                    <div class="small text-muted">Status</div>
+                    <div class="d-flex align-items-center">
+                        <span id="connection-status" class="status-indicator bg-danger"></span>
+                        <span id="connection-text" class="ms-2 small">Connecting...</span>
+                    </div>
+                </div>
+                <div class="vr"></div>
+                <div class="text-center">
+                    <div class="small text-muted">Player</div>
+                    <div id="username-display" class="fw-bold text-warning">Guest</div>
+                </div>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        <div class="row">
+    <!-- Main Content -->
+    <div class="container py-4">
+        <div class="row g-4">
             <!-- Left Panel - Lobby -->
-            <div class="col-lg-4 mb-4">
-                <div class="card bg-dark border-secondary shadow-lg">
-                    <div class="card-header bg-secondary bg-opacity-25">
-                        <h3 class="h5 mb-0"><i class="bi bi-people-fill me-2"></i>Game Lobby</h3>
-                    </div>
-                    <div class="card-body">
-                        <div id="username-section" class="mb-4">
-                            <h4 class="h6 text-muted mb-3">Enter Your Name</h4>
+            <div class="col-lg-4">
+                <div class="glass-card p-4 mb-4">
+                    <h3 class="h5 mb-4 d-flex align-items-center gap-2">
+                        <i class="bi bi-people-fill text-primary"></i>
+                        Game Lobby
+                    </h3>
+                    
+                    <!-- Username Section -->
+                    <div id="username-section">
+                        <div class="mb-3">
+                            <label class="form-label text-muted">Enter Your Name</label>
                             <div class="input-group">
                                 <input type="text" id="username-input" class="form-control bg-dark text-light border-secondary" 
-                                       placeholder="Enter your name" maxlength="20">
+                                       placeholder="Your awesome name" maxlength="20">
                                 <button id="set-username" class="btn btn-primary">
-                                    <i class="bi bi-check-lg"></i> Start
+                                    <i class="bi bi-rocket-takeoff"></i> Start
                                 </button>
                             </div>
                         </div>
-
-                        <div id="create-game-section" class="mb-4" style="display: none;">
-                            <h4 class="h6 text-muted mb-3">Create New Game</h4>
-                            <div class="input-group mb-3">
-                                <input type="text" id="game-name-input" class="form-control bg-dark text-light border-secondary" 
-                                       placeholder="Game name (optional)">
-                                <button id="create-game-btn" class="btn btn-success">
-                                    <i class="bi bi-plus-circle me-1"></i> Create
-                                </button>
-                            </div>
-                        </div>
-
-                        <div id="games-list-section" class="mt-4" style="display: none;">
-                            <h4 class="h6 text-muted mb-3">
-                                <i class="bi bi-list-ul me-1"></i> Available Games
-                                <span id="games-count" class="badge bg-primary ms-2">0</span>
-                            </h4>
-                            <div id="games-list" class="list-group"></div>
-                        </div>
-
-                        <div id="current-game-info" class="mt-4" style="display: none;">
-    <div class="alert alert-info bg-dark border-info">
-        <h5 id="game-title" class="h6 mb-2"></h5>
-        <div id="game-status" class="small mb-2"></div>
-        <div id="players-info" class="small"></div>
-        <button id="leave-game" class="btn btn-sm btn-outline-danger mt-3">
-            <i class="bi bi-door-closed me-1"></i> Leave Game
-        </button>
-    </div>
-</div>
-
-                <div class="card bg-dark border-secondary mt-4 shadow">
-                    <div class="card-header bg-secondary bg-opacity-25">
-                        <h3 class="h5 mb-0"><i class="bi bi-trophy me-2"></i>Your Stats</h3>
                     </div>
-                    <div class="card-body">
-                        <div id="player-stats">
-                            <div class="row text-center">
-                                <div class="col-6 mb-3">
-                                    <div class="stat-item p-3">
-                                        <div class="stat-value">0</div>
-                                        <small class="text-muted">Games</small>
-                                    </div>
+
+                    <!-- Create Game Section -->
+                    <div id="create-game-section" class="mb-4" style="display: none;">
+                        <h5 class="h6 mb-3 text-muted">Create New Game</h5>
+                        <div class="input-group mb-3">
+                            <input type="text" id="game-name-input" class="form-control bg-dark text-light border-secondary" 
+                                   placeholder="Game name (optional)">
+                            <button id="create-game-btn" class="btn btn-success">
+                                <i class="bi bi-plus-circle me-2"></i> Create Game
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Available Games -->
+                    <div id="games-list-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="h6 mb-0 text-muted">
+                                <i class="bi bi-list-ul me-2"></i> Available Games
+                            </h5>
+                            <span id="games-count" class="badge bg-primary">0</span>
+                        </div>
+                        <div id="games-list" class="mb-3">
+                            <!-- Games will be loaded here -->
+                        </div>
+                        <div class="text-center">
+                            <button id="refresh-games" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Current Game Info -->
+                    <div id="current-game-info" style="display: none;">
+                        <div class="alert alert-dark border-primary">
+                            <h6 id="game-title" class="mb-2"></h6>
+                            <div id="game-status" class="small mb-2"></div>
+                            <div id="players-info" class="mb-3"></div>
+                            <div class="d-grid">
+                                <button id="leave-game" class="btn btn-outline-danger">
+                                    <i class="bi bi-door-closed me-2"></i> Leave Game
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Player Stats -->
+                <div class="glass-card p-4">
+                    <h4 class="h5 mb-4 d-flex align-items-center gap-2">
+                        <i class="bi bi-trophy text-warning"></i>
+                        Your Stats
+                    </h4>
+                    <div id="player-stats">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="stat-card">
+                                    <div class="stat-value">0</div>
+                                    <small class="text-muted">Games</small>
                                 </div>
-                                <div class="col-6 mb-3">
-                                    <div class="stat-item p-3">
-                                        <div class="stat-value">0</div>
-                                        <small class="text-muted">Wins</small>
-                                    </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="stat-card">
+                                    <div class="stat-value">0</div>
+                                    <small class="text-muted">Wins</small>
                                 </div>
-                                <div class="col-6">
-                                    <div class="stat-item p-3">
-                                        <div class="stat-value">0</div>
-                                        <small class="text-muted">Losses</small>
-                                    </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="stat-card">
+                                    <div class="stat-value">0</div>
+                                    <small class="text-muted">Losses</small>
                                 </div>
-                                <div class="col-6">
-                                    <div class="stat-item p-3">
-                                        <div class="stat-value">0%</div>
-                                        <small class="text-muted">Win Rate</small>
-                                    </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="stat-card">
+                                    <div class="stat-value">0%</div>
+                                    <small class="text-muted">Win Rate</small>
                                 </div>
                             </div>
                         </div>
@@ -113,86 +383,111 @@
 
             <!-- Right Panel - Game Board -->
             <div class="col-lg-8">
-                <div class="card bg-dark border-secondary shadow-lg h-100">
-                    <div class="card-header bg-secondary bg-opacity-25">
-                        <h3 class="h5 mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>Game Board</h3>
+                <div class="glass-card p-4 h-100">
+                    <h3 class="h5 mb-4 d-flex align-items-center gap-2">
+                        <i class="bi bi-grid-3x3-gap text-primary"></i>
+                        Game Arena
+                    </h3>
+                    
+                    <!-- Waiting Screen -->
+                    <div id="waiting-screen" class="text-center py-5">
+                        <div class="mb-4">
+                            <i class="bi bi-joystick display-1 text-muted"></i>
+                        </div>
+                        <h4 class="mb-3">Welcome to TicTacToe Arena!</h4>
+                        <p class="text-muted mb-4">Enter your name to start playing with friends</p>
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 small text-muted" id="connection-message">Connecting to server...</p>
                     </div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center" style="min-height: 600px;">
-                        <div id="waiting-screen" class="text-center">
-                            <i class="bi bi-joystick display-1 text-muted mb-3"></i>
-                            <h4 class="mb-3">Welcome to TicTacToe Arena!</h4>
-                            <p class="text-muted">Enter your name to start playing</p>
-                            <div class="mt-4">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                                <p class="mt-2 small text-muted" id="connection-message">Connecting to server...</p>
+
+                    <!-- Game Board Container -->
+                    <div id="game-board-container" style="display: none;">
+                        <!-- Game Info -->
+                        <div class="text-center mb-4">
+                            <h3 id="game-name-display" class="h4 mb-3"></h3>
+                            <div id="turn-indicator" class="turn-indicator d-inline-block">
+                                ⏳ Waiting for game to start...
                             </div>
                         </div>
+                        
+                        <!-- Players Info -->
+                        <div id="players-display" class="row mb-4">
+                            <!-- Will be populated by JavaScript -->
+                        </div>
+                        
+                        <!-- Game Board -->
+                        <div class="game-board mb-4" id="tic-tac-toe-board">
+                            <!-- Cells will be generated here -->
+                        </div>
+                        
+                        <!-- Game Result -->
+                        <div id="game-result" class="text-center mb-4" style="display: none;">
+                            <h4 id="result-message" class="h3 mb-3"></h4>
+                            <div class="d-flex justify-content-center gap-3">
+                                <button id="rematch-btn" class="btn btn-glow">
+                                    <i class="bi bi-arrow-clockwise me-2"></i> Rematch
+                                </button>
+                                <button id="new-game-btn" class="btn btn-outline-light">
+                                    <i class="bi bi-plus-circle me-2"></i> New Game
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Game Instructions -->
+                        <div class="alert alert-dark border-info mt-4">
+                            <h6 class="mb-2"><i class="bi bi-info-circle me-2"></i>How to Play:</h6>
+                            <ul class="mb-0 small">
+                                <li>Players alternate turns placing X and O</li>
+                                <li>First to get 3 in a row (horizontal, vertical, or diagonal) wins!</li>
+                                <li>If all cells are filled with no winner, it's a draw</li>
+                                <li>You can only make one move per turn</li>
+                            </ul>
+                        </div>
+                    </div>
 
-                        <div id="game-board-container" style="display: none; width: 100%;">
-                            <div class="text-center mb-4">
-                                <h3 id="game-name-display" class="h4 mb-3"></h3>
-                                <div id="turn-indicator" class="alert alert-info bg-dark border-info d-inline-block px-4 py-2 mb-3">
-                                    Waiting for game to start...
-                                </div>
+                    <!-- Chat Section -->
+                    <div id="chat-section" class="mt-4" style="display: none;">
+                        <div class="glass-card">
+                            <div class="card-header bg-transparent border-secondary">
+                                <h6 class="mb-0 d-flex align-items-center gap-2">
+                                    <i class="bi bi-chat-dots text-primary"></i>
+                                    Game Chat
+                                </h6>
                             </div>
-                            
-                            <!-- Game Board -->
-                            <div class="d-flex justify-content-center mb-4">
-                                <div class="tic-tac-toe-board" id="tic-tac-toe-board">
-                                    <!-- Cells will be generated here -->
-                                </div>
-                            </div>
-                            
-                            <div id="game-result" class="text-center mb-4" style="display: none;">
-                                <h4 id="result-message" class="h3 mb-3"></h4>
-                                <div class="mt-3">
-                                    <button id="rematch-btn" class="btn btn-primary me-2">
-                                        <i class="bi bi-arrow-clockwise me-1"></i> Rematch
-                                    </button>
-                                    <button id="new-game-btn" class="btn btn-outline-secondary">
-                                        <i class="bi bi-plus-circle me-1"></i> New Game
+                            <div class="card-body">
+                                <div id="chat-messages" class="chat-messages mb-3"></div>
+                                <div class="input-group">
+                                    <input type="text" id="chat-input" class="form-control bg-dark text-light border-secondary" 
+                                           placeholder="Type your message..." disabled>
+                                    <button id="send-chat-btn" class="btn btn-primary" disabled>
+                                        <i class="bi bi-send"></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
-
-<div id="chat-section" class="mt-4 w-100" style="display: none;">
-    <div class="card bg-dark border-secondary">
-        <div class="card-header bg-secondary bg-opacity-25">
-            <h6 class="mb-0"><i class="bi bi-chat-dots me-2"></i>Game Chat</h6>
-        </div>
-        <div class="card-body p-2">
-            <div id="chat-messages" class="chat-messages mb-2"></div>
-            <div class="input-group">
-                <input type="text" id="chat-input" class="form-control form-control-sm bg-dark text-light border-secondary" 
-                       placeholder="Enter a game to chat..." disabled>
-                <button id="send-chat-btn" class="btn btn-sm btn-primary" disabled>
-                    <i class="bi bi-send"></i>
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <footer class="footer mt-5 py-3 bg-dark border-top border-secondary">
-        <div class="container text-center">
-            <p class="mb-0 text-muted">
-                <i class="bi bi-lightning-charge-fill text-warning"></i> 
-                Real-time Multiplayer TicTacToe | Made with <i class="bi bi-heart-fill text-danger"></i>
+    <!-- Footer -->
+    <footer class="text-center py-4 text-muted border-top border-secondary mt-5">
+        <div class="container">
+            <p class="mb-0">
+                <i class="bi bi-lightning-charge-fill text-warning me-2"></i>
+                Real-time Multiplayer TicTacToe | Made with 
+                <i class="bi bi-heart-fill text-danger mx-1"></i>
+                by TicTacToe Arena
             </p>
         </div>
     </footer>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- Scripts -->
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="game.js"></script>
 </body>
-
 </html>
