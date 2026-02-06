@@ -10,19 +10,17 @@ const io = socketIo(server);
 // Serve static files
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Game state
+// Simple game management
 const games = {};
 const users = {};
 
 io.on('connection', (socket) => {
-    console.log('New connection:', socket.id);
+    console.log('User connected:', socket.id);
     
-    // REGISTER USER - FIXED
+    // Register user
     socket.on('register-user', (username) => {
-        console.log('Register user called with:', username);
-        
-        if (!username || username.trim().length < 2) {
-            socket.emit('error', 'Name must be at least 2 characters');
+        if (!username || username.trim() === '') {
+            socket.emit('error', 'Please enter a name');
             return;
         }
         
@@ -30,26 +28,20 @@ io.on('connection', (socket) => {
         users[socket.id] = name;
         socket.username = name;
         
-        console.log(`✅ User registered: ${name}`);
-        
-        // Send registered event back to client
+        console.log(`${name} registered`);
         socket.emit('user-registered', { username: name });
-        
-        // Send initial games list
-        sendGamesList(socket);
+        broadcastGames();
     });
     
-    // CREATE GAME - FIXED
-    socket.on('create-game', (data) => {
-        console.log('Create game called with:', data);
-        
+    // Create game
+    socket.on('create-game', ({ host, name }) => {
         if (!socket.username) {
             socket.emit('error', 'Please register first');
             return;
         }
         
         const gameId = 'game_' + Date.now();
-        const gameName = (data && data.name) ? data.name.trim() : `${socket.username}'s Game`;
+        const gameName = name || `${socket.username}'s Game`;
         
         games[gameId] = {
             id: gameId,
@@ -59,38 +51,29 @@ io.on('connection', (socket) => {
             board: Array(9).fill(''),
             currentPlayer: 'X',
             status: 'waiting',
-            winner: null,
-            createdAt: new Date()
+            winner: null
         };
         
         socket.join(gameId);
         socket.currentGameId = gameId;
         
-        console.log(`🎮 Game created: ${gameName}`);
-        
-        // Send game-created event back to creator
+        console.log(`Game created: ${gameName}`);
         socket.emit('game-created', games[gameId]);
-        
-        // Update games list for everyone
-        sendGamesList();
+        broadcastGames();
     });
     
-    // JOIN GAME - FIXED
-    socket.on('join-game', (data) => {
-        console.log('Join game called with:', data);
-        
+    // Join game
+    socket.on('join-game', ({ gameId, player }) => {
         if (!socket.username) {
             socket.emit('error', 'Please register first');
             return;
         }
         
-        const gameId = data && data.gameId;
-        if (!gameId || !games[gameId]) {
+        const game = games[gameId];
+        if (!game) {
             socket.emit('error', 'Game not found');
             return;
         }
-        
-        const game = games[gameId];
         
         if (game.players.length >= 2) {
             socket.emit('error', 'Game is full');
@@ -102,55 +85,24 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Add player to game
+        // Add player
         game.players.push(socket.username);
         game.status = 'playing';
         
         socket.join(gameId);
         socket.currentGameId = gameId;
         
-        console.log(`🎯 ${socket.username} joined ${game.name}`);
+        console.log(`${socket.username} joined ${game.name}`);
         
-        // Notify both players that game has started
+        // Start the game
         io.to(gameId).emit('game-started', game);
-        
-        // Send player info to each player
-        game.players.forEach((player, index) => {
-            const playerSymbol = index === 0 ? 'X' : 'O';
-            const isYourTurn = index === 0; // X goes first
-            
-            // Find socket for this player
-            const playerSocketId = Object.keys(users).find(id => users[id] === player);
-            if (playerSocketId) {
-                io.to(playerSocketId).emit('player-info', {
-                    symbol: playerSymbol,
-                    isYourTurn: isYourTurn,
-                    currentPlayer: 'X'
-                });
-            }
-        });
-        
-        // Update games list
-        sendGamesList();
+        broadcastGames();
     });
     
-    // MAKE MOVE - FIXED
-    socket.on('make-move', (data) => {
-        console.log('Make move called with:', data);
-        
-        if (!socket.username) {
-            socket.emit('error', 'Please register first');
-            return;
-        }
-        
-        const gameId = data && data.gameId;
-        const cellIndex = data && data.cellIndex;
-        
+    // Make move
+    socket.on('make-move', ({ gameId, cellIndex, player }) => {
         const game = games[gameId];
-        if (!game) {
-            socket.emit('error', 'Game not found');
-            return;
-        }
+        if (!game || !socket.username) return;
         
         if (!game.players.includes(socket.username)) {
             socket.emit('error', 'Not in this game');
@@ -160,7 +112,7 @@ io.on('connection', (socket) => {
         const playerIndex = game.players.indexOf(socket.username);
         const playerSymbol = playerIndex === 0 ? 'X' : 'O';
         
-        // Validate move
+        // Validate
         if (game.currentPlayer !== playerSymbol) {
             socket.emit('error', 'Not your turn');
             return;
@@ -171,58 +123,41 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Make the move
+        // Make move
         game.board[cellIndex] = playerSymbol;
         
-        // Check for win
+        // Check win
         const result = checkWin(game.board);
         if (result) {
             game.status = 'finished';
             game.winner = result === 'draw' ? 'draw' : 
                          result === 'X' ? game.players[0] : game.players[1];
-            game.winningLine = getWinningLine(game.board);
         } else {
-            // Switch player
+            // Switch turn
             game.currentPlayer = game.currentPlayer === 'X' ? 'O' : 'X';
         }
         
-        console.log(`🎲 ${socket.username} placed ${playerSymbol} at ${cellIndex}`);
+        console.log(`${socket.username} moved ${playerSymbol} to ${cellIndex}`);
         
-        // Broadcast move to all players in the game
+        // Broadcast to all in game
         io.to(gameId).emit('move-made', {
             cellIndex: cellIndex,
             symbol: playerSymbol,
             board: game.board,
             currentPlayer: game.currentPlayer,
-            gameStatus: game.status,
-            winner: game.winner,
-            winningLine: game.winningLine
+            gameOver: game.status === 'finished',
+            winner: game.winner
         });
-        
-        // Update turn info for players
-        if (game.status === 'playing') {
-            game.players.forEach((player, index) => {
-                const playerSocketId = Object.keys(users).find(id => users[id] === player);
-                if (playerSocketId) {
-                    const symbol = index === 0 ? 'X' : 'O';
-                    io.to(playerSocketId).emit('turn-update', {
-                        isYourTurn: game.currentPlayer === symbol
-                    });
-                }
-            });
-        }
     });
     
-    // GET GAMES - FIXED
+    // Get games
     socket.on('get-games', () => {
-        sendGamesList(socket);
+        broadcastGames(socket);
     });
     
-    // LEAVE GAME - FIXED
-    socket.on('leave-game', (data) => {
-        const gameId = data && data.gameId;
-        
-        if (gameId && games[gameId] && socket.username) {
+    // Leave game
+    socket.on('leave-game', ({ gameId, player }) => {
+        if (games[gameId] && socket.username) {
             const game = games[gameId];
             game.players = game.players.filter(p => p !== socket.username);
             
@@ -232,67 +167,19 @@ io.on('connection', (socket) => {
                 game.status = 'waiting';
                 game.board = Array(9).fill('');
                 game.currentPlayer = 'X';
-                game.winner = null;
-                io.to(gameId).emit('player-left', { player: socket.username });
-                io.to(gameId).emit('game-updated', game);
+                io.to(gameId).emit('player-left', socket.username);
             }
             
             socket.leave(gameId);
-            delete socket.currentGameId;
-            sendGamesList();
+            broadcastGames();
         }
     });
     
-    // CHAT MESSAGE
-    socket.on('chat-message', (data) => {
-        const gameId = data && data.gameId;
-        if (gameId && games[gameId]) {
-            io.to(gameId).emit('chat-message', {
-                player: socket.username,
-                message: data.message,
-                timestamp: new Date().toISOString()
-            });
-        }
-    });
-    
-    // REQUEST REMATCH
-    socket.on('request-rematch', (data) => {
-        const gameId = data && data.gameId;
-        const game = games[gameId];
-        
-        if (game && game.players.length === 2) {
-            // Reset game state
-            game.board = Array(9).fill('');
-            game.status = 'playing';
-            game.currentPlayer = 'X';
-            game.winner = null;
-            game.winningLine = null;
-            
-            // Swap players for fairness
-            game.players = [game.players[1], game.players[0]];
-            
-            io.to(gameId).emit('rematch-started', game);
-            
-            // Send new player info
-            game.players.forEach((player, index) => {
-                const playerSocketId = Object.keys(users).find(id => users[id] === player);
-                if (playerSocketId) {
-                    const symbol = index === 0 ? 'X' : 'O';
-                    io.to(playerSocketId).emit('player-info', {
-                        symbol: symbol,
-                        isYourTurn: index === 0,
-                        currentPlayer: 'X'
-                    });
-                }
-            });
-        }
-    });
-    
-    // DISCONNECT
+    // Disconnect
     socket.on('disconnect', () => {
-        console.log(`Disconnected: ${socket.username || 'Anonymous'}`);
+        console.log(`${socket.username || 'Anonymous'} disconnected`);
         
-        if (socket.currentGameId && games[socket.currentGameId] && socket.username) {
+        if (socket.currentGameId && games[socket.currentGameId]) {
             const game = games[socket.currentGameId];
             game.players = game.players.filter(p => p !== socket.username);
             
@@ -300,17 +187,17 @@ io.on('connection', (socket) => {
                 delete games[socket.currentGameId];
             } else {
                 game.status = 'waiting';
-                io.to(socket.currentGameId).emit('player-left', { player: socket.username });
+                io.to(socket.currentGameId).emit('player-left', socket.username);
             }
             
-            sendGamesList();
+            broadcastGames();
         }
         
         delete users[socket.id];
     });
     
-    // Helper function to send games list
-    function sendGamesList(targetSocket = null) {
+    // Helper functions
+    function broadcastGames(targetSocket = null) {
         const availableGames = Object.values(games)
             .filter(game => game.status === 'waiting')
             .map(game => ({
@@ -320,65 +207,46 @@ io.on('connection', (socket) => {
                 players: game.players,
                 playerCount: game.players.length
             }));
-        
+
         if (targetSocket) {
-            targetSocket.emit('game-list', availableGames);
+            targetSocket.emit('games-list', availableGames);
         } else {
-            io.emit('game-list', availableGames);
+            io.emit('games-list', availableGames);
         }
     }
     
-    // Check for win
     function checkWin(board) {
         const winPatterns = [
             [0, 1, 2], [3, 4, 5], [6, 7, 8],
             [0, 3, 6], [1, 4, 7], [2, 5, 8],
             [0, 4, 8], [2, 4, 6]
         ];
-        
+
         for (const pattern of winPatterns) {
             const [a, b, c] = pattern;
             if (board[a] && board[a] === board[b] && board[a] === board[c]) {
                 return board[a];
             }
         }
-        
+
         if (board.every(cell => cell !== '')) {
             return 'draw';
         }
-        
-        return null;
-    }
-    
-    // Get winning line
-    function getWinningLine(board) {
-        const winPatterns = [
-            [0, 1, 2], [3, 4, 5], [6, 7, 8],
-            [0, 3, 6], [1, 4, 7], [2, 5, 8],
-            [0, 4, 8], [2, 4, 6]
-        ];
-        
-        for (const pattern of winPatterns) {
-            const [a, b, c] = pattern;
-            if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-                return pattern;
-            }
-        }
-        
+
         return null;
     }
     
     // Send initial games list
-    sendGamesList(socket);
+    broadcastGames(socket);
 });
 
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ 
-        status: 'OK',
+        status: 'OK', 
         timestamp: new Date().toISOString(),
-        games: Object.keys(games).length,
-        users: Object.keys(users).length
+        activeGames: Object.keys(games).length,
+        activeUsers: Object.keys(users).length
     });
 });
 
