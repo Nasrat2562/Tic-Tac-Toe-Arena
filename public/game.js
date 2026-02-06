@@ -7,6 +7,12 @@ let mySymbol = '';
 let socket = null;
 let username = null;
 let currentGame = null;
+let userStats = {
+    gamesPlayed: 0,
+    wins: 0,
+    losses: 0,
+    draws: 0
+};
 
 console.log('Game.js loaded');
 
@@ -39,6 +45,9 @@ function initSocket() {
         console.log('User registered:', data);
         username = data.username;
         document.getElementById('username-display').textContent = username;
+        
+        // Load user stats
+        loadUserStats();
         
         // Show game sections
         document.getElementById('username-section').style.display = 'none';
@@ -101,6 +110,9 @@ function initSocket() {
         
         const opponent = game.players.find(p => p !== username);
         showNotification(`Game started! You are ${mySymbol} vs ${opponent}. ${isMyTurn ? 'Your turn!' : 'Opponent\'s turn!'}`, 'success');
+        
+        // Enable chat
+        enableChat();
     });
     
     socket.on('move-made', (data) => {
@@ -123,11 +135,23 @@ function initSocket() {
             let message = '';
             if (data.winner === 'draw') {
                 message = '🎭 Game ended in a draw!';
+                userStats.draws++;
             } else if (data.winner === username) {
                 message = '🎉 YOU WIN! 🏆';
+                userStats.wins++;
             } else {
                 message = '😢 You lost!';
+                userStats.losses++;
             }
+            
+            if (data.winner !== 'draw') {
+                userStats.gamesPlayed++;
+            }
+            
+            // Update stats display
+            updateStatsDisplay();
+            // Save stats to localStorage
+            saveUserStats();
             
             showNotification(message, data.winner === username ? 'success' : 'warning');
             
@@ -194,6 +218,17 @@ function initSocket() {
     
     socket.on('rematch-pending', (message) => {
         showNotification(message, 'info');
+    });
+    
+    socket.on('chat-message', (data) => {
+        console.log('Chat message received:', data);
+        addChatMessage(data.sender, data.message, data.sender === username);
+    });
+    
+    socket.on('user-stats', (stats) => {
+        console.log('User stats received:', stats);
+        userStats = { ...userStats, ...stats };
+        updateStatsDisplay();
     });
     
     socket.on('error', (error) => {
@@ -269,7 +304,7 @@ function setupEventListeners() {
         }
     });
     
-    // Rematch - FIXED: Now properly sends rematch request
+    // Rematch
     document.getElementById('rematch-btn').addEventListener('click', function() {
         if (currentGame && socket) {
             console.log('Requesting rematch for game:', currentGame.id);
@@ -289,6 +324,83 @@ function setupEventListeners() {
         hideGameScreen();
         showNotification('Returned to lobby', 'info');
     });
+    
+    // Send chat message
+    document.getElementById('send-chat-btn').addEventListener('click', sendChatMessage);
+    
+    // Enter key for chat
+    document.getElementById('chat-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendChatMessage();
+        }
+    });
+}
+
+function sendChatMessage() {
+    const chatInput = document.getElementById('chat-input');
+    const message = chatInput.value.trim();
+    
+    if (!message) return;
+    
+    if (!currentGame || !username) {
+        showNotification('You must be in a game to chat', 'warning');
+        return;
+    }
+    
+    console.log('Sending chat message:', message);
+    
+    socket.emit('chat-message', {
+        gameId: currentGame.id,
+        sender: username,
+        message: message
+    });
+    
+    // Add message locally immediately
+    addChatMessage(username, message, true);
+    
+    chatInput.value = '';
+    chatInput.focus();
+}
+
+function addChatMessage(sender, message, isOwnMessage) {
+    const chatMessages = document.getElementById('chat-messages');
+    if (!chatMessages) return;
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = `mb-2 ${isOwnMessage ? 'text-end' : ''}`;
+    
+    messageElement.innerHTML = `
+        <div class="d-inline-block p-2 rounded ${isOwnMessage ? 'bg-primary text-white' : 'bg-secondary'}">
+            <small class="fw-bold">${isOwnMessage ? 'You' : sender}</small>
+            <div>${message}</div>
+            <small class="opacity-75">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+        </div>
+    `;
+    
+    chatMessages.appendChild(messageElement);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function enableChat() {
+    const chatInput = document.getElementById('chat-input');
+    const sendChatBtn = document.getElementById('send-chat-btn');
+    
+    if (chatInput && sendChatBtn) {
+        chatInput.disabled = false;
+        chatInput.placeholder = 'Type your message...';
+        sendChatBtn.disabled = false;
+    }
+}
+
+function disableChat() {
+    const chatInput = document.getElementById('chat-input');
+    const sendChatBtn = document.getElementById('send-chat-btn');
+    
+    if (chatInput && sendChatBtn) {
+        chatInput.disabled = true;
+        chatInput.placeholder = 'Join a game to chat...';
+        sendChatBtn.disabled = true;
+    }
 }
 
 function initGameBoard() {
@@ -411,7 +523,7 @@ function updateGamesList(games) {
                         </small>
                     </div>
                     <button class="btn btn-sm btn-primary join-game-btn" 
-                            ${game.playerCount >= 2 ? 'disabled' : ''}>
+                            ${game.playerCount >= 2 || game.status === 'playing' || game.status === 'finished' ? 'disabled' : ''}>
                         <i class="bi bi-joystick"></i> Join
                     </button>
                 </div>
@@ -477,6 +589,15 @@ function hideGameScreen() {
     document.getElementById('current-game-info').style.display = 'none';
     document.getElementById('games-list-section').style.display = 'block';
     document.getElementById('create-game-section').style.display = 'block';
+    
+    // Clear chat
+    const chatMessages = document.getElementById('chat-messages');
+    if (chatMessages) {
+        chatMessages.innerHTML = '';
+    }
+    
+    // Disable chat
+    disableChat();
     
     // Reset game state
     currentBoard = Array(9).fill('');
@@ -620,4 +741,66 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 3000);
+}
+
+function loadUserStats() {
+    const savedStats = localStorage.getItem(`tic-tac-toe-stats-${username}`);
+    if (savedStats) {
+        userStats = JSON.parse(savedStats);
+        updateStatsDisplay();
+    } else {
+        // Initialize new stats
+        userStats = {
+            gamesPlayed: 0,
+            wins: 0,
+            losses: 0,
+            draws: 0
+        };
+        updateStatsDisplay();
+    }
+    
+    // Request server-side stats too
+    socket.emit('get-stats', { username: username });
+}
+
+function saveUserStats() {
+    localStorage.setItem(`tic-tac-toe-stats-${username}`, JSON.stringify(userStats));
+    // Also send to server
+    socket.emit('update-stats', { username: username, stats: userStats });
+}
+
+function updateStatsDisplay() {
+    const winRate = userStats.gamesPlayed > 0 
+        ? Math.round((userStats.wins / userStats.gamesPlayed) * 100) 
+        : 0;
+    
+    const statsContainer = document.getElementById('player-stats');
+    if (statsContainer) {
+        statsContainer.innerHTML = `
+            <div class="col-6 mb-3">
+                <div class="p-3 bg-dark rounded">
+                    <div class="h3 mb-1 text-primary">${userStats.gamesPlayed}</div>
+                    <small>Games</small>
+                </div>
+            </div>
+            <div class="col-6 mb-3">
+                <div class="p-3 bg-dark rounded">
+                    <div class="h3 mb-1 text-success">${userStats.wins}</div>
+                    <small>Wins</small>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-3 bg-dark rounded">
+                    <div class="h3 mb-1 text-warning">${userStats.losses}</div>
+                    <small>Losses</small>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-3 bg-dark rounded">
+                    <div class="h3 mb-1 text-info">${winRate}%</div>
+                    <small>Win Rate</small>
+                </div>
+            </div>
+        `;
+    }
 }
