@@ -278,7 +278,10 @@ io.on('connection', (socket) => {
             // Find opponent's socket
             const opponentSocket = getSocketByUsername(opponent);
             if (opponentSocket) {
-                opponentSocket.emit('rematch-offered', socket.username);
+                opponentSocket.emit('rematch-offered', {
+                    player: socket.username,
+                    gameId: gameId
+                });
             }
         }
         
@@ -289,6 +292,53 @@ io.on('connection', (socket) => {
         } else {
             // Notify player that request was sent
             socket.emit('rematch-pending', 'Rematch request sent to opponent. Waiting for their response...');
+        }
+    });
+    
+    // Accept rematch
+    socket.on('accept-rematch', ({ gameId, player }) => {
+        const game = games[gameId];
+        if (!game || !socket.username) return;
+        
+        if (!game.players.includes(socket.username)) {
+            socket.emit('error', 'You are not in this game');
+            return;
+        }
+        
+        console.log(`${socket.username} accepted rematch for game ${gameId}`);
+        
+        // Add to rematch requests
+        game.rematchRequests.add(socket.username);
+        
+        // Check if both players have requested rematch
+        if (game.rematchRequests.size === 2) {
+            // Start rematch
+            startRematch(gameId);
+        }
+    });
+    
+    // Reject rematch
+    socket.on('reject-rematch', ({ gameId, player }) => {
+        const game = games[gameId];
+        if (!game || !socket.username) return;
+        
+        if (!game.players.includes(socket.username)) {
+            socket.emit('error', 'You are not in this game');
+            return;
+        }
+        
+        console.log(`${socket.username} rejected rematch for game ${gameId}`);
+        
+        // Clear rematch requests
+        game.rematchRequests.clear();
+        
+        // Notify other player
+        const opponent = game.players.find(p => p !== socket.username);
+        if (opponent) {
+            const opponentSocket = getSocketByUsername(opponent);
+            if (opponentSocket) {
+                opponentSocket.emit('rematch-rejected', socket.username);
+            }
         }
     });
     
