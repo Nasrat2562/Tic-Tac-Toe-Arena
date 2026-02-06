@@ -8,36 +8,35 @@ let socket = null;
 let username = null;
 let currentGame = null;
 
-console.log('TicTacToe initializing...');
+console.log('Game.js loaded');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded');
+    console.log('DOM ready');
     initSocket();
     setupEventListeners();
     initGameBoard();
 });
 
 function initSocket() {
-    console.log('Connecting to server...');
+    console.log('Initializing socket...');
     
-    // Connect to current host
     socket = io();
     
     socket.on('connect', () => {
-        console.log('✅ Connected');
+        console.log('Connected to server');
         updateConnectionStatus(true);
         document.getElementById('connection-message').textContent = 'Connected! Enter your name.';
     });
     
     socket.on('disconnect', () => {
-        console.log('❌ Disconnected');
+        console.log('Disconnected');
         updateConnectionStatus(false);
         document.getElementById('connection-message').textContent = 'Disconnected';
     });
     
-    socket.on('registered', (data) => {
-        console.log('Registered:', data.username);
+    socket.on('user-registered', (data) => {
+        console.log('User registered:', data);
         username = data.username;
         document.getElementById('username-display').textContent = username;
         
@@ -49,7 +48,7 @@ function initSocket() {
         // Update waiting screen
         document.getElementById('waiting-screen').innerHTML = `
             <i class="bi bi-person-check display-1 text-success mb-3"></i>
-            <h4 class="mb-3">Welcome, ${username}!</h4>
+            <h4 class="mb-3 text-light">Welcome, ${username}!</h4>
             <p class="text-muted">Create a game or join an existing one</p>
         `;
         
@@ -76,26 +75,23 @@ function initSocket() {
         console.log('Game started:', game);
         currentGame = game;
         gameActive = true;
-        currentBoard = game.board;
         
-        // Get player info
-        socket.emit('get-games'); // Request updated games
-        
-        showNotification('Game started!', 'success');
-        updateGameState();
-    });
-    
-    socket.on('player-info', (data) => {
-        console.log('Player info:', data);
-        mySymbol = data.symbol;
-        isMyTurn = data.isYourTurn;
-        
-        document.getElementById('turn-indicator').textContent = 
-            isMyTurn ? `✅ Your turn (${mySymbol})` : `⏳ Waiting for opponent...`;
-        
-        if (isMyTurn) {
-            showNotification(`You are ${mySymbol}. Your turn first!`, 'success');
+        // Determine my symbol and turn
+        if (game.players[0] === username) {
+            mySymbol = 'X';
+            isMyTurn = true;
+        } else if (game.players[1] === username) {
+            mySymbol = 'O';
+            isMyTurn = false;
         }
+        
+        currentBoard = game.board;
+        currentPlayer = game.currentPlayer;
+        
+        updateGameState();
+        
+        const opponent = game.players.find(p => p !== username);
+        showNotification(`Game started! You are ${mySymbol} vs ${opponent}`, 'success');
     });
     
     socket.on('move-made', (data) => {
@@ -105,8 +101,11 @@ function initSocket() {
         currentBoard = data.board;
         currentPlayer = data.currentPlayer;
         
-        // Update UI
+        // Update turn status
+        isMyTurn = currentPlayer === mySymbol && !data.gameOver;
+        
         updateBoardDisplay();
+        updateTurnIndicator();
         
         if (data.gameOver) {
             gameActive = false;
@@ -114,52 +113,22 @@ function initSocket() {
             
             let message = '';
             if (data.winner === 'draw') {
-                message = '🎭 Draw game!';
+                message = '🎭 Game ended in a draw!';
             } else if (data.winner === username) {
-                message = '🎉 You win!';
+                message = '🎉 YOU WIN! 🏆';
             } else {
-                message = '😢 You lose!';
+                message = '😢 You lost!';
             }
             
             showNotification(message, data.winner === username ? 'success' : 'warning');
             
-            document.getElementById('result-message').textContent = message;
-            document.getElementById('game-result').style.display = 'block';
+            const resultMessage = document.getElementById('result-message');
+            const gameResult = document.getElementById('game-result');
             
-            // Highlight winning cells
-            if (data.winningLine) {
-                data.winningLine.forEach(index => {
-                    const cell = document.querySelector(`.cell[data-index="${index}"]`);
-                    if (cell) cell.classList.add('winning');
-                });
+            if (resultMessage && gameResult) {
+                resultMessage.textContent = message;
+                gameResult.style.display = 'block';
             }
-        } else {
-            // Update turn indicator
-            isMyTurn = currentPlayer === mySymbol;
-            document.getElementById('turn-indicator').textContent = 
-                isMyTurn ? `✅ Your turn (${mySymbol})` : `⏳ Opponent's turn`;
-        }
-    });
-    
-    socket.on('turn-update', (data) => {
-        console.log('Turn update:', data);
-        isMyTurn = data.isYourTurn;
-        
-        document.getElementById('turn-indicator').textContent = 
-            isMyTurn ? `✅ Your turn (${mySymbol})` : `⏳ Opponent's turn`;
-        
-        if (isMyTurn) {
-            showNotification('Your turn!', 'info');
-        }
-    });
-    
-    socket.on('player-joined', (data) => {
-        console.log('Player joined:', data);
-        showNotification(`${data.player} joined the game!`, 'info');
-        
-        if (currentGame && currentGame.id === data.game.id) {
-            currentGame = data.game;
-            updateGameInfo(currentGame);
         }
     });
     
@@ -169,21 +138,27 @@ function initSocket() {
         
         if (currentGame) {
             currentGame.status = 'waiting';
+            gameActive = false;
             updateGameInfo(currentGame);
         }
     });
     
     socket.on('error', (error) => {
-        console.error('Error:', error);
+        console.error('Socket error:', error);
         showNotification(error, 'danger');
     });
 }
 
 function setupEventListeners() {
-    // Set username button
+    // Set username - FIXED THIS
     document.getElementById('set-username').addEventListener('click', function() {
         const usernameInput = document.getElementById('username-input');
         const name = usernameInput.value.trim();
+        
+        if (!name) {
+            showNotification('Please enter a name', 'warning');
+            return;
+        }
         
         if (name.length < 2) {
             showNotification('Name must be at least 2 characters', 'warning');
@@ -191,7 +166,7 @@ function setupEventListeners() {
         }
         
         console.log('Setting username:', name);
-        socket.emit('register', name);
+        socket.emit('register-user', name);
     });
     
     // Enter key for username
@@ -201,13 +176,22 @@ function setupEventListeners() {
         }
     });
     
-    // Create game button
+    // Create game
     document.getElementById('create-game-btn').addEventListener('click', function() {
+        if (!username) {
+            showNotification('Please enter your name first', 'warning');
+            return;
+        }
+        
         const gameNameInput = document.getElementById('game-name-input');
         const gameName = gameNameInput.value.trim() || `${username}'s Game`;
         
         console.log('Creating game:', gameName);
-        socket.emit('create-game', gameName);
+        socket.emit('create-game', {
+            host: username,
+            name: gameName
+        });
+        
         gameNameInput.value = '';
     });
     
@@ -221,10 +205,13 @@ function setupEventListeners() {
     // Leave game
     document.getElementById('leave-game').addEventListener('click', function() {
         if (currentGame) {
-            if (confirm('Leave this game?')) {
-                socket.emit('leave-game', currentGame.id);
+            if (confirm('Are you sure you want to leave this game?')) {
+                socket.emit('leave-game', {
+                    gameId: currentGame.id,
+                    player: username
+                });
                 hideGameScreen();
-                showNotification('Left the game', 'info');
+                showNotification('You left the game', 'info');
             }
         }
     });
@@ -232,46 +219,24 @@ function setupEventListeners() {
     // Rematch
     document.getElementById('rematch-btn').addEventListener('click', function() {
         if (currentGame) {
-            // Reset board
+            // Reset game state
             currentBoard = Array(9).fill('');
-            currentPlayer = 'X';
             gameActive = true;
             isMyTurn = mySymbol === 'X';
+            currentPlayer = 'X';
             
             updateBoardDisplay();
+            updateTurnIndicator();
             document.getElementById('game-result').style.display = 'none';
             
-            // Remove winning highlights
-            document.querySelectorAll('.cell').forEach(cell => {
-                cell.classList.remove('winning');
-            });
-            
-            showNotification('Rematch!', 'info');
+            showNotification('Rematch started!', 'info');
         }
     });
     
     // New game
     document.getElementById('new-game-btn').addEventListener('click', function() {
         hideGameScreen();
-        showNotification('Back to lobby', 'info');
-    });
-    
-    // Chat
-    document.getElementById('send-chat-btn').addEventListener('click', function() {
-        const chatInput = document.getElementById('chat-input');
-        const message = chatInput.value.trim();
-        
-        if (message && currentGame) {
-            // In a real app, send to server
-            addChatMessage(username, message, true);
-            chatInput.value = '';
-        }
-    });
-    
-    document.getElementById('chat-input').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            document.getElementById('send-chat-btn').click();
-        }
+        showNotification('Returned to lobby', 'info');
     });
 }
 
@@ -280,9 +245,12 @@ function initGameBoard() {
     const board = document.getElementById('tic-tac-toe-board');
     
     if (!board) {
-        console.error('Board element not found');
+        console.error('Game board element not found!');
         return;
     }
+    
+    // Clear the board
+    board.innerHTML = '';
     
     // Create 9 cells
     for (let i = 0; i < 9; i++) {
@@ -302,47 +270,52 @@ function initGameBoard() {
 }
 
 function handleCellClick(index) {
-    console.log('Cell clicked:', index, 'Game active:', gameActive, 'My turn:', isMyTurn);
+    console.log(`Cell ${index} clicked. Game active: ${gameActive}, My turn: ${isMyTurn}`);
     
     if (!gameActive) {
-        showNotification('Game not active', 'warning');
+        showNotification('Game is not active yet', 'warning');
         return;
     }
     
     if (!isMyTurn) {
-        showNotification('Wait for your turn', 'warning');
+        showNotification('Wait for your turn!', 'warning');
         return;
     }
     
     if (currentBoard[index]) {
-        showNotification('Cell already taken', 'warning');
+        showNotification('This cell is already taken!', 'warning');
         return;
     }
     
     if (currentGame && socket) {
-        console.log('Making move at:', index);
+        console.log('Making move at index:', index);
         socket.emit('make-move', {
             gameId: currentGame.id,
-            cellIndex: index
+            cellIndex: index,
+            player: username
         });
     }
 }
 
 function updateBoardDisplay() {
-    const cells = document.querySelectorAll('.cell');
+    const board = document.getElementById('tic-tac-toe-board');
+    if (!board) return;
+    
+    const cells = board.querySelectorAll('.cell');
     
     cells.forEach((cell, index) => {
-        const value = currentBoard[index];
-        cell.textContent = value;
+        const cellValue = currentBoard[index];
+        cell.textContent = cellValue;
         cell.className = 'cell';
         
-        if (value === 'X') {
+        if (cellValue === 'X') {
             cell.classList.add('x');
-        } else if (value === 'O') {
+        } else if (cellValue === 'O') {
             cell.classList.add('o');
         }
         
-        if (!gameActive || !isMyTurn || value) {
+        // Disable cell if not player's turn or already taken
+        if (!gameActive || !isMyTurn || cellValue) {
             cell.classList.add('disabled');
         } else {
             cell.classList.remove('disabled');
@@ -351,48 +324,62 @@ function updateBoardDisplay() {
 }
 
 function updateGamesList(games) {
-    const container = document.getElementById('games-list');
-    const count = document.getElementById('games-count');
+    const gamesList = document.getElementById('games-list');
+    const gamesCount = document.getElementById('games-count');
     
-    if (!container) return;
+    if (!gamesList) return;
     
-    container.innerHTML = '';
+    gamesList.innerHTML = '';
     
     if (games.length === 0) {
-        container.innerHTML = '<div class="text-center text-muted p-3">No games available</div>';
+        gamesList.innerHTML = `
+            <div class="text-center text-muted p-4">
+                <i class="bi bi-emoji-frown display-6 mb-2"></i>
+                <p class="mb-0">No games available</p>
+                <small>Create the first game!</small>
+            </div>
+        `;
     } else {
         games.forEach(game => {
-            const item = document.createElement('div');
-            item.className = 'game-item p-3 mb-2 bg-dark rounded';
-            item.innerHTML = `
+            const gameItem = document.createElement('div');
+            gameItem.className = 'game-item p-3 mb-2 bg-dark rounded';
+            gameItem.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <div class="fw-bold">${game.name}</div>
                         <small class="text-muted">
-                            Host: ${game.host} • Players: ${game.playerCount}/2
+                            <i class="bi bi-person-fill"></i> ${game.host} | 
+                            <i class="bi bi-people-fill"></i> ${game.playerCount}/2
                         </small>
                     </div>
-                    <button class="btn btn-sm btn-primary join-btn" 
+                    <button class="btn btn-sm btn-primary join-game-btn" 
                             ${game.playerCount >= 2 ? 'disabled' : ''}>
-                        Join
+                        <i class="bi bi-joystick"></i> Join
                     </button>
                 </div>
             `;
+            gamesList.appendChild(gameItem);
             
-            const joinBtn = item.querySelector('.join-btn');
+            const joinBtn = gameItem.querySelector('.join-game-btn');
             joinBtn.addEventListener('click', () => {
-                if (username) {
-                    console.log('Joining game:', game.id);
-                    socket.emit('join-game', game.id);
+                if (!username) {
+                    showNotification('Please enter your name first', 'warning');
+                    return;
                 }
+                
+                console.log('Joining game:', game.id);
+                socket.emit('join-game', {
+                    gameId: game.id,
+                    player: username
+                });
+                
+                showNotification(`Joining "${game.name}"...`, 'info');
             });
-            
-            container.appendChild(item);
         });
     }
     
-    if (count) {
-        count.textContent = games.length;
+    if (gamesCount) {
+        gamesCount.textContent = games.length;
     }
 }
 
@@ -405,20 +392,13 @@ function showGameScreen(game) {
     document.getElementById('create-game-section').style.display = 'none';
     
     document.getElementById('game-name-display').textContent = game.name;
-    
-    // Enable chat
-    document.getElementById('chat-input').disabled = false;
-    document.getElementById('send-chat-btn').disabled = false;
-    
-    // Add welcome message
-    addChatMessage('System', 'Welcome to the game!');
 }
 
 function hideGameScreen() {
     document.getElementById('waiting-screen').style.display = 'block';
     document.getElementById('waiting-screen').innerHTML = `
         <i class="bi bi-joystick display-1 text-muted mb-3"></i>
-        <h4 class="mb-3">Welcome back, ${username}!</h4>
+        <h4 class="mb-3 text-light">Welcome back, ${username}!</h4>
         <p class="text-muted">Create a game or join an existing one</p>
     `;
     document.getElementById('game-board-container').style.display = 'none';
@@ -439,23 +419,22 @@ function hideGameScreen() {
 }
 
 function updateGameInfo(game) {
-    const title = document.getElementById('game-title');
-    const status = document.getElementById('game-status');
-    const players = document.getElementById('players-info');
+    const gameTitle = document.getElementById('game-title');
+    const gameStatus = document.getElementById('game-status');
+    const playersInfo = document.getElementById('players-info');
     
-    if (title) title.textContent = game.name;
+    if (gameTitle) gameTitle.textContent = game.name;
     
-    if (status) {
-        status.textContent = game.status === 'waiting' ? 
-            '⏳ Waiting for opponent...' : '🎮 Game in progress';
-        status.className = `small ${game.status === 'waiting' ? 'text-warning' : 'text-success'}`;
+    if (gameStatus) {
+        gameStatus.textContent = game.status === 'waiting' ? '⏳ Waiting for opponent...' : '🎮 Game in progress';
+        gameStatus.className = `small ${game.status === 'waiting' ? 'text-warning' : 'text-success'}`;
     }
     
-    if (players && game.players) {
-        players.innerHTML = `
+    if (playersInfo && game.players) {
+        playersInfo.innerHTML = `
             <strong>Players:</strong><br>
             ${game.players.map(p => `
-                <span class="${p === username ? 'text-warning' : 'text-light'}">
+                <span class="${p === username ? 'text-warning fw-bold' : 'text-light'}">
                     • ${p}${p === game.host ? ' (Host)' : ''}
                 </span>
             `).join('<br>')}
@@ -466,64 +445,63 @@ function updateGameInfo(game) {
 function updateGameState() {
     updateBoardDisplay();
     updateTurnIndicator();
-}
-
-function updateTurnIndicator() {
-    const indicator = document.getElementById('turn-indicator');
-    if (!indicator) return;
     
-    if (!gameActive) {
-        indicator.textContent = '⏸️ Game paused';
-        indicator.className = 'turn-indicator alert alert-secondary';
-    } else if (isMyTurn) {
-        indicator.textContent = `✅ Your turn (${mySymbol})`;
-        indicator.className = 'turn-indicator alert alert-success';
-    } else {
-        indicator.textContent = `⏳ Opponent's turn`;
-        indicator.className = 'turn-indicator alert alert-warning';
+    // Hide result if game is active
+    if (gameActive) {
+        document.getElementById('game-result').style.display = 'none';
     }
 }
 
-function addChatMessage(sender, message, isOwn = false) {
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
+function updateTurnIndicator() {
+    const turnIndicator = document.getElementById('turn-indicator');
+    if (!turnIndicator) return;
     
-    const div = document.createElement('div');
-    div.className = `mb-2 ${isOwn ? 'text-end' : ''}`;
-    div.innerHTML = `
-        <div class="d-inline-block p-2 rounded ${isOwn ? 'bg-primary' : 'bg-secondary'}">
-            <small class="fw-bold">${sender}:</small>
-            <div>${message}</div>
-        </div>
-    `;
+    if (!gameActive) {
+        turnIndicator.textContent = '⏸️ Game Paused';
+        turnIndicator.className = 'alert alert-secondary';
+        return;
+    }
     
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
+    if (isMyTurn) {
+        turnIndicator.textContent = `✅ YOUR TURN (${mySymbol})`;
+        turnIndicator.className = 'alert alert-success';
+    } else {
+        turnIndicator.textContent = `⏳ OPPONENT'S TURN`;
+        turnIndicator.className = 'alert alert-warning';
+    }
 }
 
 function updateConnectionStatus(connected) {
-    const indicator = document.getElementById('connection-status');
-    if (indicator) {
-        indicator.className = `status-dot ${connected ? 'connected' : 'disconnected'}`;
+    const statusElement = document.getElementById('connection-status');
+    if (statusElement) {
+        statusElement.className = `status-indicator ${connected ? 'bg-success connected' : 'bg-danger disconnected'}`;
+        statusElement.title = connected ? 'Connected' : 'Disconnected';
     }
 }
 
 function showNotification(message, type = 'info') {
-    // Create a simple notification
-    const alert = document.createElement('div');
-    alert.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-    alert.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    // Create notification
+    const notification = document.createElement('div');
+    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    
+    notification.innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="bi ${type === 'success' ? 'bi-check-circle-fill' : 
+                         type === 'warning' ? 'bi-exclamation-triangle-fill' : 
+                         type === 'danger' ? 'bi-x-circle-fill' : 
+                         'bi-info-circle-fill'} me-2"></i>
+            <span>${message}</span>
+            <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+        </div>
     `;
     
-    document.body.appendChild(alert);
+    document.body.appendChild(notification);
     
     // Auto remove after 3 seconds
     setTimeout(() => {
-        if (alert.parentNode) {
-            alert.remove();
+        if (notification.parentNode) {
+            notification.remove();
         }
     }, 3000);
 }
