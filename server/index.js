@@ -13,6 +13,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Game management
 const games = {};
 const users = {};
+const userStatistics = {}; // Store user statistics
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -28,8 +29,22 @@ io.on('connection', (socket) => {
         users[socket.id] = name;
         socket.username = name;
         
+        // Initialize user stats if not exists
+        if (!userStatistics[name]) {
+            userStatistics[name] = {
+                gamesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                username: name
+            };
+        }
+        
         console.log(`${name} registered`);
         socket.emit('user-registered', { username: name });
+        // Send current stats to user
+        socket.emit('user-stats', userStatistics[name]);
+        
         broadcastGames();
     });
     
@@ -146,8 +161,38 @@ io.on('connection', (socket) => {
             gameOver = true;
             if (result === 'draw') {
                 winner = 'draw';
+                // Update draws for both players
+                game.players.forEach(player => {
+                    if (userStatistics[player]) {
+                        userStatistics[player].draws++;
+                        userStatistics[player].gamesPlayed++;
+                    }
+                });
             } else {
                 winner = result === 'X' ? game.players[0] : game.players[1];
+                const loser = game.players.find(p => p !== winner);
+                
+                // Update winner stats
+                if (userStatistics[winner]) {
+                    userStatistics[winner].wins++;
+                    userStatistics[winner].gamesPlayed++;
+                    // Send updated stats to winner
+                    const winnerSocket = getSocketByUsername(winner);
+                    if (winnerSocket) {
+                        winnerSocket.emit('user-stats', userStatistics[winner]);
+                    }
+                }
+                
+                // Update loser stats
+                if (userStatistics[loser]) {
+                    userStatistics[loser].losses++;
+                    userStatistics[loser].gamesPlayed++;
+                    // Send updated stats to loser
+                    const loserSocket = getSocketByUsername(loser);
+                    if (loserSocket) {
+                        loserSocket.emit('user-stats', userStatistics[loser]);
+                    }
+                }
             }
             game.winner = winner;
         } else {
@@ -199,7 +244,7 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Request rematch - FIXED
+    // Request rematch
     socket.on('request-rematch', ({ gameId, player }) => {
         const game = games[gameId];
         if (!game || !socket.username) {
@@ -239,6 +284,40 @@ io.on('connection', (socket) => {
         } else {
             // Notify player that request was sent
             socket.emit('rematch-pending', 'Rematch request sent to opponent. Waiting for their response...');
+        }
+    });
+    
+    // Chat message
+    socket.on('chat-message', (data) => {
+        const { gameId, sender, message } = data;
+        const game = games[gameId];
+        
+        if (!game || !game.players.includes(sender)) {
+            socket.emit('error', 'Cannot send message to this game');
+            return;
+        }
+        
+        console.log(`Chat message from ${sender} in game ${gameId}: ${message}`);
+        
+        // Broadcast to all players in the game
+        io.to(gameId).emit('chat-message', {
+            sender: sender,
+            message: message,
+            timestamp: new Date().toISOString()
+        });
+    });
+    
+    // Get user stats
+    socket.on('get-stats', ({ username }) => {
+        if (userStatistics[username]) {
+            socket.emit('user-stats', userStatistics[username]);
+        }
+    });
+    
+    // Update user stats
+    socket.on('update-stats', ({ username, stats }) => {
+        if (userStatistics[username]) {
+            userStatistics[username] = { ...userStatistics[username], ...stats };
         }
     });
     
@@ -341,14 +420,25 @@ io.on('connection', (socket) => {
     broadcastGames(socket);
 });
 
-// Health check
+// Health check with stats
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
         activeGames: Object.keys(games).length,
-        activeUsers: Object.keys(users).length
+        activeUsers: Object.keys(users).length,
+        totalPlayers: Object.keys(userStatistics).length
     });
+});
+
+// Get user stats API
+app.get('/api/stats/:username', (req, res) => {
+    const username = req.params.username;
+    if (userStatistics[username]) {
+        res.json(userStatistics[username]);
+    } else {
+        res.status(404).json({ error: 'User not found' });
+    }
 });
 
 // Serve index.html for all routes
