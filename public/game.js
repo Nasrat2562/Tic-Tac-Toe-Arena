@@ -150,7 +150,41 @@ function initSocket() {
             currentGame.status = 'waiting';
             gameActive = false;
             updateGameInfo(currentGame);
+            updateTurnIndicator();
         }
+    });
+    
+    socket.on('rematch-offered', (player) => {
+        showNotification(`${player} wants a rematch! Click "Rematch" button to accept.`, 'info');
+    });
+    
+    socket.on('rematch-started', (game) => {
+        console.log('Rematch started:', game);
+        currentGame = game;
+        gameActive = true;
+        
+        // Reset board
+        currentBoard = Array(9).fill('');
+        
+        // Determine turn based on symbol
+        if (game.players[0] === username) {
+            mySymbol = 'X';
+            isMyTurn = true;  // X always starts
+        } else if (game.players[1] === username) {
+            mySymbol = 'O';
+            isMyTurn = false;  // O goes second
+        }
+        
+        currentPlayer = 'X';
+        
+        // Hide result
+        document.getElementById('game-result').style.display = 'none';
+        
+        // Update display
+        initGameBoard();
+        updateGameState();
+        
+        showNotification('Rematch started! X goes first.', 'success');
     });
     
     socket.on('error', (error) => {
@@ -229,10 +263,12 @@ function setupEventListeners() {
     // Rematch
     document.getElementById('rematch-btn').addEventListener('click', function() {
         if (currentGame && socket) {
+            console.log('Requesting rematch for game:', currentGame.id);
             socket.emit('request-rematch', {
                 gameId: currentGame.id,
                 player: username
             });
+            showNotification('Rematch requested! Waiting for opponent...', 'info');
         }
     });
     
@@ -445,11 +481,16 @@ function updateGameInfo(game) {
             gameStatus.textContent = '⏳ Waiting for opponent...';
             gameStatus.className = 'small text-warning';
         } else if (game.status === 'playing') {
-            gameStatus.textContent = isMyTurn ? '✅ YOUR TURN!' : '⏳ Opponent\'s turn...';
-            gameStatus.className = `small ${isMyTurn ? 'text-success' : 'text-warning'}`;
-        } else {
-            gameStatus.textContent = '🎮 Game in progress';
-            gameStatus.className = 'small text-success';
+            if (gameActive) {
+                gameStatus.textContent = isMyTurn ? '✅ YOUR TURN!' : '⏳ Opponent\'s turn...';
+                gameStatus.className = `small ${isMyTurn ? 'text-success' : 'text-warning'}`;
+            } else {
+                gameStatus.textContent = '🎮 Game in progress';
+                gameStatus.className = 'small text-info';
+            }
+        } else if (game.status === 'finished') {
+            gameStatus.textContent = '🏁 Game finished';
+            gameStatus.className = 'small text-muted';
         }
     }
     
@@ -480,8 +521,8 @@ function updateTurnIndicator() {
     const turnIndicator = document.getElementById('turn-indicator');
     if (!turnIndicator) return;
     
-    if (!gameActive || !currentGame) {
-        turnIndicator.textContent = '⏸️ Game Paused';
+    if (!currentGame) {
+        turnIndicator.textContent = '🎮 No active game';
         turnIndicator.className = 'alert alert-secondary';
         return;
     }
@@ -492,11 +533,17 @@ function updateTurnIndicator() {
         return;
     }
     
+    if (!gameActive) {
+        turnIndicator.textContent = '⏸️ Game finished';
+        turnIndicator.className = 'alert alert-secondary';
+        return;
+    }
+    
     if (isMyTurn) {
         turnIndicator.textContent = `✅ YOUR TURN! (${mySymbol})`;
         turnIndicator.className = 'alert alert-success';
     } else {
-        turnIndicator.textContent = `⏳ OPPONENT'S TURN`;
+        turnIndicator.textContent = `⏳ OPPONENT'S TURN (${mySymbol === 'X' ? 'O' : 'X'})`;
         turnIndicator.className = 'alert alert-warning';
     }
 }
