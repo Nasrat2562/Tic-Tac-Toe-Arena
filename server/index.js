@@ -10,9 +10,10 @@ const io = socketIo(server);
 // Serve static files
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Simple game management
+// Game management
 const games = {};
 const users = {};
+const rematchRequests = {}; // Store rematch requests
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -51,7 +52,9 @@ io.on('connection', (socket) => {
             board: Array(9).fill(''),
             currentPlayer: 'X',
             status: 'waiting',
-            winner: null
+            winner: null,
+            playerCount: 1,
+            rematchRequestedBy: null
         };
         
         socket.join(gameId);
@@ -88,14 +91,25 @@ io.on('connection', (socket) => {
         // Add player
         game.players.push(socket.username);
         game.status = 'playing';
+        game.playerCount = 2;
+        game.rematchRequestedBy = null;
         
         socket.join(gameId);
         socket.currentGameId = gameId;
         
         console.log(`${socket.username} joined ${game.name}`);
         
-        // Start the game
-        io.to(gameId).emit('game-started', game);
+        // Reset game state for both players
+        game.board = Array(9).fill('');
+        game.currentPlayer = 'X';
+        game.winner = null;
+        
+        // Notify ALL players that game has started
+        io.to(gameId).emit('game-started', {
+            ...game,
+            currentPlayer: 'X'
+        });
+        
         broadcastGames();
     });
     
@@ -128,16 +142,24 @@ io.on('connection', (socket) => {
         
         // Check win
         const result = checkWin(game.board);
+        let gameOver = false;
+        let winner = null;
+        
         if (result) {
             game.status = 'finished';
-            game.winner = result === 'draw' ? 'draw' : 
-                         result === 'X' ? game.players[0] : game.players[1];
+            gameOver = true;
+            if (result === 'draw') {
+                winner = 'draw';
+            } else {
+                winner = result === 'X' ? game.players[0] : game.players[1];
+            }
+            game.winner = winner;
         } else {
             // Switch turn
             game.currentPlayer = game.currentPlayer === 'X' ? 'O' : 'X';
         }
         
-        console.log(`${socket.username} moved ${playerSymbol} to ${cellIndex}`);
+        console.log(`${socket.username} moved ${playerSymbol} to ${cellIndex}. Next: ${game.currentPlayer}`);
         
         // Broadcast to all in game
         io.to(gameId).emit('move-made', {
@@ -145,9 +167,11 @@ io.on('connection', (socket) => {
             symbol: playerSymbol,
             board: game.board,
             currentPlayer: game.currentPlayer,
-            gameOver: game.status === 'finished',
-            winner: game.winner
+            gameOver: gameOver,
+            winner: winner
         });
+        
+        broadcastGames();
     });
     
     // Get games
@@ -160,6 +184,7 @@ io.on('connection', (socket) => {
         if (games[gameId] && socket.username) {
             const game = games[gameId];
             game.players = game.players.filter(p => p !== socket.username);
+            game.playerCount = game.players.length;
             
             if (game.players.length === 0) {
                 delete games[gameId];
@@ -167,11 +192,56 @@ io.on('connection', (socket) => {
                 game.status = 'waiting';
                 game.board = Array(9).fill('');
                 game.currentPlayer = 'X';
+                game.winner = null;
+                game.rematchRequestedBy = null;
                 io.to(gameId).emit('player-left', socket.username);
             }
             
             socket.leave(gameId);
+            socket.currentGameId = null;
             broadcastGames();
+        }
+    });
+    
+    // Request rematch
+    socket.on('request-rematch', ({ gameId, player }) => {
+        const game = games[gameId];
+        if (!game || !game.players.includes(socket.username)) {
+            socket.emit('error', 'Game not found or you are not in this game');
+            return;
+        }
+        
+        if (game.status !== 'finished') {
+            socket.emit('error', 'Game is not finished yet');
+            return;
+        }
+        
+        // Store rematch request
+        game.rematchRequestedBy = socket.username;
+        
+        // Notify opponent
+        const opponent = game.players.find(p => p !== socket.username);
+        console.log(`${socket.username} requested rematch. Opponent: ${opponent}`);
+        
+        // Notify opponent about rematch request
+        socket.to(gameId).emit('rematch-offered', socket.username);
+        
+        // If both players requested rematch (or it's the second request), start rematch
+        const opponentSocket = getSocketByUsername(opponent);
+        if (opponentSocket && game.rematchRequestedBy && game.rematchRequestedBy !== socket.username) {
+            // Both players have requested rematch
+            startRematch(gameId);
+        } else {
+            // Wait for opponent to accept
+            socket.emit('rematch-pending', 'Rematch requested. Waiting for opponent...');
+        }
+    });
+    
+    // Accept rematch
+    socket.on('accept-rematch', ({ gameId, player }) => {
+        const game = games[gameId];
+        if (game && game.rematchRequestedBy && game.rematchRequestedBy !== socket.username) {
+            startRematch(gameId);
         }
     });
     
@@ -182,11 +252,15 @@ io.on('connection', (socket) => {
         if (socket.currentGameId && games[socket.currentGameId]) {
             const game = games[socket.currentGameId];
             game.players = game.players.filter(p => p !== socket.username);
+            game.playerCount = game.players.length;
             
             if (game.players.length === 0) {
                 delete games[socket.currentGameId];
             } else {
                 game.status = 'waiting';
+                game.board = Array(9).fill('');
+                game.currentPlayer = 'X';
+                game.rematchRequestedBy = null;
                 io.to(socket.currentGameId).emit('player-left', socket.username);
             }
             
@@ -205,7 +279,8 @@ io.on('connection', (socket) => {
                 name: game.name,
                 host: game.host,
                 players: game.players,
-                playerCount: game.players.length
+                playerCount: game.playerCount,
+                status: game.status
             }));
 
         if (targetSocket) {
@@ -234,6 +309,34 @@ io.on('connection', (socket) => {
         }
 
         return null;
+    }
+    
+    function getSocketByUsername(username) {
+        for (const [socketId, user] of Object.entries(users)) {
+            if (user === username) {
+                return io.sockets.sockets.get(socketId);
+            }
+        }
+        return null;
+    }
+    
+    function startRematch(gameId) {
+        const game = games[gameId];
+        if (!game) return;
+        
+        // Reset game state
+        game.board = Array(9).fill('');
+        game.currentPlayer = 'X';
+        game.status = 'playing';
+        game.winner = null;
+        game.rematchRequestedBy = null;
+        
+        console.log(`Starting rematch for game: ${game.name}`);
+        
+        // Notify all players in the game
+        io.to(gameId).emit('rematch-started', game);
+        
+        broadcastGames();
     }
     
     // Send initial games list
