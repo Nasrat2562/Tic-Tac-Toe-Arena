@@ -94,7 +94,6 @@ function initSocket() {
         
         // Show game screen and update display
         showGameScreen(game);
-        updateGameInfo(game);
         
         // Reinitialize the game board
         initGameBoard();
@@ -139,6 +138,13 @@ function initSocket() {
                 resultMessage.textContent = message;
                 gameResult.style.display = 'block';
             }
+            
+            // Update game info to show finished status
+            if (currentGame) {
+                currentGame.status = 'finished';
+                currentGame.winner = data.winner;
+                updateGameInfo(currentGame);
+            }
         }
     });
     
@@ -165,8 +171,9 @@ function initSocket() {
         
         // Reset board
         currentBoard = Array(9).fill('');
+        currentPlayer = 'X';
         
-        // Determine turn based on symbol
+        // Determine turn based on symbol (keep same symbols as before)
         if (game.players[0] === username) {
             mySymbol = 'X';
             isMyTurn = true;  // X always starts
@@ -174,8 +181,6 @@ function initSocket() {
             mySymbol = 'O';
             isMyTurn = false;  // O goes second
         }
-        
-        currentPlayer = 'X';
         
         // Hide result
         document.getElementById('game-result').style.display = 'none';
@@ -187,6 +192,10 @@ function initSocket() {
         showNotification('Rematch started! X goes first.', 'success');
     });
     
+    socket.on('rematch-pending', (message) => {
+        showNotification(message, 'info');
+    });
+    
     socket.on('error', (error) => {
         console.error('Socket error:', error);
         showNotification(error, 'danger');
@@ -194,7 +203,7 @@ function initSocket() {
 }
 
 function setupEventListeners() {
-    // Set username - FIXED THIS
+    // Set username
     document.getElementById('set-username').addEventListener('click', function() {
         const usernameInput = document.getElementById('username-input');
         const name = usernameInput.value.trim();
@@ -260,10 +269,13 @@ function setupEventListeners() {
         }
     });
     
-    // Rematch
+    // Rematch - FIXED: Now properly sends rematch request
     document.getElementById('rematch-btn').addEventListener('click', function() {
         if (currentGame && socket) {
             console.log('Requesting rematch for game:', currentGame.id);
+            // Hide result display while waiting
+            document.getElementById('game-result').style.display = 'none';
+            
             socket.emit('request-rematch', {
                 gameId: currentGame.id,
                 player: username
@@ -389,8 +401,12 @@ function updateGamesList(games) {
                         <small class="text-muted">
                             <i class="bi bi-person-fill"></i> ${game.host} | 
                             <i class="bi bi-people-fill"></i> ${game.playerCount}/2 |
-                            <span class="${game.status === 'waiting' ? 'text-warning' : 'text-success'}">
-                                ${game.status === 'waiting' ? '⏳ Waiting' : '🎮 Playing'}
+                            <span class="${game.status === 'waiting' ? 'text-warning' : 
+                                        game.status === 'playing' ? 'text-success' : 
+                                        'text-secondary'}">
+                                ${game.status === 'waiting' ? '⏳ Waiting' : 
+                                 game.status === 'playing' ? '🎮 Playing' : 
+                                 '🏁 Finished'}
                             </span>
                         </small>
                     </div>
@@ -411,6 +427,11 @@ function updateGamesList(games) {
                 
                 if (game.playerCount >= 2) {
                     showNotification('Game is full!', 'warning');
+                    return;
+                }
+                
+                if (game.status === 'playing' || game.status === 'finished') {
+                    showNotification('Game is already in progress', 'warning');
                     return;
                 }
                 
@@ -489,7 +510,13 @@ function updateGameInfo(game) {
                 gameStatus.className = 'small text-info';
             }
         } else if (game.status === 'finished') {
-            gameStatus.textContent = '🏁 Game finished';
+            if (game.winner === 'draw') {
+                gameStatus.textContent = '🏁 Game ended in a draw';
+            } else if (game.winner === username) {
+                gameStatus.textContent = '🏆 YOU WON!';
+            } else {
+                gameStatus.textContent = '😢 Game finished - You lost';
+            }
             gameStatus.className = 'small text-muted';
         }
     }
@@ -533,8 +560,20 @@ function updateTurnIndicator() {
         return;
     }
     
+    if (currentGame.status === 'finished') {
+        if (currentGame.winner === 'draw') {
+            turnIndicator.textContent = '🏁 Game ended in a draw';
+        } else if (currentGame.winner === username) {
+            turnIndicator.textContent = '🏆 YOU WON! Click "Rematch" for another game';
+        } else {
+            turnIndicator.textContent = '😢 Game finished - Click "Rematch" for another game';
+        }
+        turnIndicator.className = 'alert alert-info';
+        return;
+    }
+    
     if (!gameActive) {
-        turnIndicator.textContent = '⏸️ Game finished';
+        turnIndicator.textContent = '⏸️ Game paused';
         turnIndicator.className = 'alert alert-secondary';
         return;
     }
@@ -581,14 +620,4 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 3000);
-}
-
-// Reset game board
-function resetGameBoard() {
-    currentBoard = Array(9).fill('');
-    if (currentGame) {
-        currentBoard = [...currentGame.board];
-    }
-    initGameBoard();
-    updateBoardDisplay();
 }
