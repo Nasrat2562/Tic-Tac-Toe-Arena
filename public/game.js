@@ -76,22 +76,32 @@ function initSocket() {
         currentGame = game;
         gameActive = true;
         
+        // Clear the board first
+        currentBoard = Array(9).fill('');
+        
         // Determine my symbol and turn
         if (game.players[0] === username) {
             mySymbol = 'X';
-            isMyTurn = true;
+            isMyTurn = true;  // X always starts
         } else if (game.players[1] === username) {
             mySymbol = 'O';
-            isMyTurn = false;
+            isMyTurn = false;  // O goes second
         }
         
-        currentBoard = game.board;
+        // Update board from game state
+        currentBoard = [...game.board];
         currentPlayer = game.currentPlayer;
         
+        // Show game screen and update display
+        showGameScreen(game);
+        updateGameInfo(game);
+        
+        // Reinitialize the game board
+        initGameBoard();
         updateGameState();
         
         const opponent = game.players.find(p => p !== username);
-        showNotification(`Game started! You are ${mySymbol} vs ${opponent}`, 'success');
+        showNotification(`Game started! You are ${mySymbol} vs ${opponent}. ${isMyTurn ? 'Your turn!' : 'Opponent\'s turn!'}`, 'success');
     });
     
     socket.on('move-made', (data) => {
@@ -218,18 +228,11 @@ function setupEventListeners() {
     
     // Rematch
     document.getElementById('rematch-btn').addEventListener('click', function() {
-        if (currentGame) {
-            // Reset game state
-            currentBoard = Array(9).fill('');
-            gameActive = true;
-            isMyTurn = mySymbol === 'X';
-            currentPlayer = 'X';
-            
-            updateBoardDisplay();
-            updateTurnIndicator();
-            document.getElementById('game-result').style.display = 'none';
-            
-            showNotification('Rematch started!', 'info');
+        if (currentGame && socket) {
+            socket.emit('request-rematch', {
+                gameId: currentGame.id,
+                player: username
+            });
         }
     });
     
@@ -241,7 +244,7 @@ function setupEventListeners() {
 }
 
 function initGameBoard() {
-    console.log('Initializing game board...');
+    console.log('Initializing game board... Current board:', currentBoard);
     const board = document.getElementById('tic-tac-toe-board');
     
     if (!board) {
@@ -257,7 +260,7 @@ function initGameBoard() {
         const cell = document.createElement('button');
         cell.className = 'cell';
         cell.dataset.index = i;
-        cell.textContent = '';
+        cell.textContent = currentBoard[i] || '';
         
         cell.addEventListener('click', function() {
             handleCellClick(i);
@@ -270,7 +273,7 @@ function initGameBoard() {
 }
 
 function handleCellClick(index) {
-    console.log(`Cell ${index} clicked. Game active: ${gameActive}, My turn: ${isMyTurn}`);
+    console.log(`Cell ${index} clicked. Game active: ${gameActive}, My turn: ${isMyTurn}, Cell value: ${currentBoard[index]}`);
     
     if (!gameActive) {
         showNotification('Game is not active yet', 'warning');
@@ -314,7 +317,7 @@ function updateBoardDisplay() {
             cell.classList.add('o');
         }
         
-        // Disable cell if not player's turn or already taken
+        // Disable cell if not player's turn or already taken or game not active
         if (!gameActive || !isMyTurn || cellValue) {
             cell.classList.add('disabled');
         } else {
@@ -349,7 +352,10 @@ function updateGamesList(games) {
                         <div class="fw-bold">${game.name}</div>
                         <small class="text-muted">
                             <i class="bi bi-person-fill"></i> ${game.host} | 
-                            <i class="bi bi-people-fill"></i> ${game.playerCount}/2
+                            <i class="bi bi-people-fill"></i> ${game.playerCount}/2 |
+                            <span class="${game.status === 'waiting' ? 'text-warning' : 'text-success'}">
+                                ${game.status === 'waiting' ? '⏳ Waiting' : '🎮 Playing'}
+                            </span>
                         </small>
                     </div>
                     <button class="btn btn-sm btn-primary join-game-btn" 
@@ -364,6 +370,11 @@ function updateGamesList(games) {
             joinBtn.addEventListener('click', () => {
                 if (!username) {
                     showNotification('Please enter your name first', 'warning');
+                    return;
+                }
+                
+                if (game.playerCount >= 2) {
+                    showNotification('Game is full!', 'warning');
                     return;
                 }
                 
@@ -392,6 +403,9 @@ function showGameScreen(game) {
     document.getElementById('create-game-section').style.display = 'none';
     
     document.getElementById('game-name-display').textContent = game.name;
+    
+    // Update game info
+    updateGameInfo(game);
 }
 
 function hideGameScreen() {
@@ -412,6 +426,7 @@ function hideGameScreen() {
     gameActive = false;
     isMyTurn = false;
     currentGame = null;
+    mySymbol = '';
     updateBoardDisplay();
     
     // Get updated games list
@@ -426,16 +441,24 @@ function updateGameInfo(game) {
     if (gameTitle) gameTitle.textContent = game.name;
     
     if (gameStatus) {
-        gameStatus.textContent = game.status === 'waiting' ? '⏳ Waiting for opponent...' : '🎮 Game in progress';
-        gameStatus.className = `small ${game.status === 'waiting' ? 'text-warning' : 'text-success'}`;
+        if (game.status === 'waiting') {
+            gameStatus.textContent = '⏳ Waiting for opponent...';
+            gameStatus.className = 'small text-warning';
+        } else if (game.status === 'playing') {
+            gameStatus.textContent = isMyTurn ? '✅ YOUR TURN!' : '⏳ Opponent\'s turn...';
+            gameStatus.className = `small ${isMyTurn ? 'text-success' : 'text-warning'}`;
+        } else {
+            gameStatus.textContent = '🎮 Game in progress';
+            gameStatus.className = 'small text-success';
+        }
     }
     
     if (playersInfo && game.players) {
         playersInfo.innerHTML = `
             <strong>Players:</strong><br>
-            ${game.players.map(p => `
+            ${game.players.map((p, index) => `
                 <span class="${p === username ? 'text-warning fw-bold' : 'text-light'}">
-                    • ${p}${p === game.host ? ' (Host)' : ''}
+                    • ${p} (${index === 0 ? 'X' : 'O'})${p === game.host ? ' 👑' : ''}
                 </span>
             `).join('<br>')}
         `;
@@ -445,6 +468,7 @@ function updateGameInfo(game) {
 function updateGameState() {
     updateBoardDisplay();
     updateTurnIndicator();
+    updateGameInfo(currentGame);
     
     // Hide result if game is active
     if (gameActive) {
@@ -456,14 +480,20 @@ function updateTurnIndicator() {
     const turnIndicator = document.getElementById('turn-indicator');
     if (!turnIndicator) return;
     
-    if (!gameActive) {
+    if (!gameActive || !currentGame) {
         turnIndicator.textContent = '⏸️ Game Paused';
         turnIndicator.className = 'alert alert-secondary';
         return;
     }
     
+    if (currentGame.status === 'waiting') {
+        turnIndicator.textContent = '⏳ Waiting for opponent...';
+        turnIndicator.className = 'alert alert-warning';
+        return;
+    }
+    
     if (isMyTurn) {
-        turnIndicator.textContent = `✅ YOUR TURN (${mySymbol})`;
+        turnIndicator.textContent = `✅ YOUR TURN! (${mySymbol})`;
         turnIndicator.className = 'alert alert-success';
     } else {
         turnIndicator.textContent = `⏳ OPPONENT'S TURN`;
@@ -504,4 +534,14 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 3000);
+}
+
+// Reset game board
+function resetGameBoard() {
+    currentBoard = Array(9).fill('');
+    if (currentGame) {
+        currentBoard = [...currentGame.board];
+    }
+    initGameBoard();
+    updateBoardDisplay();
 }
