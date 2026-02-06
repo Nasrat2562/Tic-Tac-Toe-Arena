@@ -8,37 +8,44 @@ let socket = null;
 let username = null;
 let currentGame = null;
 
-console.log('Game.js loaded!');
+console.log('TicTacToe Arena - Game Initializing');
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded. Initializing...');
-    
-    // Initialize socket first
-    initializeSocket();
+    console.log('DOM loaded. Setting up game...');
     
     // Setup event listeners
     setupEventListeners();
+    
+    // Initialize socket connection
+    initializeSocket();
     
     // Initialize game board
     initializeGameBoard();
 });
 
 function initializeSocket() {
-    console.log('Initializing socket connection...');
+    console.log('Connecting to server...');
     
-    // Connect to server
-    socket = io();
+    // Connect to server (use relative path for Render)
+    const socketUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:3000'
+        : window.location.origin;
+    
+    console.log('Socket URL:', socketUrl);
+    socket = io(socketUrl);
     
     // Socket event handlers
     socket.on('connect', () => {
         console.log('✅ Connected to server');
         updateConnectionStatus(true);
+        document.getElementById('connection-message').textContent = 'Connected! Enter your name to start.';
     });
     
     socket.on('disconnect', () => {
         console.log('❌ Disconnected from server');
         updateConnectionStatus(false);
+        document.getElementById('connection-message').textContent = 'Disconnected from server';
     });
     
     socket.on('user-registered', (data) => {
@@ -57,6 +64,8 @@ function initializeSocket() {
             <h4 class="mb-3 text-light">Welcome, ${username}!</h4>
             <p class="text-muted">Create a game or join an existing one</p>
         `;
+        
+        showNotification('Registered successfully!', 'success');
     });
     
     socket.on('game-list', (games) => {
@@ -89,27 +98,16 @@ function initializeSocket() {
         // Determine my symbol
         if (game.players[0] === username) {
             mySymbol = 'X';
+            isMyTurn = true;
         } else if (game.players[1] === username) {
             mySymbol = 'O';
+            isMyTurn = false;
         }
         
+        currentPlayer = 'X';
         updateGameState(game);
         showNotification(`Game started! You are ${mySymbol}`, 'success');
         addChatMessage('System', `Game started! ${game.players[0]} is X, ${game.players[1]} is O`);
-    });
-    
-    socket.on('turn-update', (data) => {
-        console.log('Turn update:', data);
-        isMyTurn = data.isYourTurn;
-        mySymbol = data.yourSymbol;
-        currentPlayer = data.currentPlayer;
-        
-        updateTurnIndicator();
-        
-        if (isMyTurn) {
-            showNotification('Your turn! Place ' + mySymbol, 'success');
-            addChatMessage('System', `It's ${username}'s turn (${mySymbol})`);
-        }
     });
     
     socket.on('move-made', (data) => {
@@ -119,24 +117,15 @@ function initializeSocket() {
         currentBoard = data.board;
         currentPlayer = data.nextPlayer;
         
-        // Check if it's my turn
-        if (currentGame && username) {
-            isMyTurn = currentPlayer === mySymbol && gameActive;
-        }
+        // Update turn status
+        isMyTurn = currentPlayer === mySymbol && gameActive;
         
         updateBoardDisplay();
         updateTurnIndicator();
         
         if (data.player !== username) {
             showNotification(`${data.player} placed ${data.symbol}`, 'info');
-        }
-    });
-    
-    socket.on('game-update', (game) => {
-        console.log('Game updated:', game);
-        if (currentGame && game.id === currentGame.id) {
-            currentGame = game;
-            updateGameInfo(game);
+            addChatMessage('System', `${data.player} placed ${data.symbol}`);
         }
     });
     
@@ -184,40 +173,6 @@ function initializeSocket() {
         addChatMessage(data.player, data.message, data.player === username);
     });
     
-    socket.on('player-left', (data) => {
-        console.log('Player left:', data);
-        showNotification(`${data.player} left the game`, 'warning');
-        addChatMessage('System', `${data.player} left the game`);
-        
-        if (currentGame) {
-            currentGame.status = 'waiting';
-            gameActive = false;
-            updateGameInfo(currentGame);
-            updateTurnIndicator();
-        }
-    });
-    
-    socket.on('rematch-started', (game) => {
-        console.log('Rematch started:', game);
-        currentGame = game;
-        gameActive = true;
-        
-        // Reset board
-        currentBoard = Array(9).fill('');
-        updateBoardDisplay();
-        
-        // Hide result
-        document.getElementById('game-result').style.display = 'none';
-        
-        // Remove winning highlights
-        document.querySelectorAll('.cell').forEach(cell => {
-            cell.classList.remove('winning');
-        });
-        
-        showNotification('Rematch started!', 'info');
-        addChatMessage('System', 'Rematch started! Players swapped sides.');
-    });
-    
     socket.on('error', (error) => {
         console.error('Socket error:', error);
         showNotification(error.message || 'An error occurred', 'danger');
@@ -235,7 +190,19 @@ function setupEventListeners() {
             return;
         }
         
+        if (name.length < 2) {
+            showNotification('Name must be at least 2 characters', 'warning');
+            return;
+        }
+        
         socket.emit('register-user', name);
+    });
+    
+    // Enter key for username
+    document.getElementById('username-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('set-username').click();
+        }
     });
     
     // Create game
@@ -254,6 +221,13 @@ function setupEventListeners() {
         });
         
         gameNameInput.value = '';
+    });
+    
+    // Enter key for game name
+    document.getElementById('game-name-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('create-game-btn').click();
+        }
     });
     
     // Leave game
@@ -288,12 +262,6 @@ function setupEventListeners() {
     
     // New game
     document.getElementById('new-game-btn').addEventListener('click', () => {
-        if (currentGame) {
-            socket.emit('leave-game', {
-                gameId: currentGame.id,
-                player: username
-            });
-        }
         hideGameScreen();
     });
 }
@@ -349,13 +317,6 @@ function handleCellClick(index) {
     if (currentGame && socket) {
         console.log('Making move at index:', index);
         
-        // Immediately update UI for instant feedback
-        currentBoard[index] = mySymbol;
-        isMyTurn = false; // Prevent further moves until server confirms
-        
-        updateBoardDisplay();
-        updateTurnIndicator();
-        
         // Send move to server
         socket.emit('make-move', {
             gameId: currentGame.id,
@@ -385,8 +346,10 @@ function updateBoardDisplay() {
         // Disable cell if not player's turn or already taken
         if (!gameActive || !isMyTurn || cellValue) {
             cell.classList.add('disabled');
+            cell.style.cursor = 'not-allowed';
         } else {
             cell.classList.remove('disabled');
+            cell.style.cursor = 'pointer';
         }
     });
 }
@@ -460,6 +423,10 @@ function showGameScreen(game) {
     
     // Update game name display
     document.getElementById('game-name-display').textContent = game.name;
+    
+    // Initialize chat
+    addChatMessage('System', 'Welcome to the game!');
+    addChatMessage('System', 'Players take turns placing X and O.');
 }
 
 function hideGameScreen() {
@@ -484,15 +451,17 @@ function hideGameScreen() {
 }
 
 function updateGameInfo(game) {
-    document.getElementById('game-title').textContent = game.name;
-    
+    const gameTitle = document.getElementById('game-title');
     const gameStatus = document.getElementById('game-status');
+    const playersInfo = document.getElementById('players-info');
+    
+    if (gameTitle) gameTitle.textContent = game.name;
+    
     if (gameStatus) {
         gameStatus.textContent = game.status === 'waiting' ? '⏳ Waiting for opponent...' : '🎮 Game in progress';
         gameStatus.className = `small ${game.status === 'waiting' ? 'text-warning' : 'text-success'}`;
     }
     
-    const playersInfo = document.getElementById('players-info');
     if (playersInfo && game.players) {
         playersInfo.innerHTML = `
             <strong>Players:</strong><br>
@@ -536,13 +505,15 @@ function updateTurnIndicator() {
         
         // Enable chat
         document.getElementById('chat-input').disabled = false;
+        document.getElementById('chat-input').placeholder = 'Type your message...';
         document.getElementById('send-chat-btn').disabled = false;
     } else {
         turnIndicator.textContent = `⏳ OPPONENT'S TURN (${currentPlayer})`;
         turnIndicator.className = 'alert alert-warning bg-dark border-warning d-inline-block px-4 py-2';
         
-        // Still enable chat
+        // Enable chat
         document.getElementById('chat-input').disabled = false;
+        document.getElementById('chat-input').placeholder = 'Type your message...';
         document.getElementById('send-chat-btn').disabled = false;
     }
 }
@@ -595,10 +566,10 @@ function updateConnectionStatus(connected) {
 }
 
 function showNotification(message, type = 'info') {
+    // Create notification
     const notification = document.createElement('div');
-    notification.className = `notification alert alert-${type} alert-dismissible fade show`;
+    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
     notification.style.cssText = `
-        position: fixed;
         top: 20px;
         right: 20px;
         z-index: 9999;
@@ -612,13 +583,14 @@ function showNotification(message, type = 'info') {
                          type === 'warning' ? 'bi-exclamation-triangle-fill' : 
                          type === 'danger' ? 'bi-x-circle-fill' : 
                          'bi-info-circle-fill'} me-2"></i>
-            <span>${message}</span>
-            <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+            <span class="flex-grow-1">${message}</span>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
         </div>
     `;
     
     document.body.appendChild(notification);
     
+    // Auto remove after 5 seconds
     setTimeout(() => {
         if (notification.parentNode) {
             notification.remove();
