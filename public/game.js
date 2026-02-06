@@ -13,7 +13,8 @@ let userStats = {
     losses: 0,
     draws: 0
 };
-let isUpdatingStats = false; // Flag to prevent double updates
+let notifications = [];
+const MAX_NOTIFICATIONS = 50;
 
 console.log('Game.js loaded');
 
@@ -23,7 +24,31 @@ document.addEventListener('DOMContentLoaded', function() {
     initSocket();
     setupEventListeners();
     initGameBoard();
+    loadNotifications();
+    initTheme();
 });
+
+function initTheme() {
+    // Check for saved theme
+    const savedTheme = localStorage.getItem('tic-tac-toe-theme') || 'dark';
+    document.body.setAttribute('data-theme', savedTheme);
+    updateThemeIcon(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.body.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.body.setAttribute('data-theme', newTheme);
+    localStorage.setItem('tic-tac-toe-theme', newTheme);
+    updateThemeIcon(newTheme);
+}
+
+function updateThemeIcon(theme) {
+    const themeIcon = document.getElementById('theme-icon');
+    if (themeIcon) {
+        themeIcon.className = theme === 'dark' ? 'bi bi-moon-fill' : 'bi bi-sun-fill';
+    }
+}
 
 function initSocket() {
     console.log('Initializing socket...');
@@ -34,12 +59,14 @@ function initSocket() {
         console.log('Connected to server');
         updateConnectionStatus(true);
         document.getElementById('connection-message').textContent = 'Connected! Enter your name.';
+        showNotification('Connected to server', 'success', true);
     });
     
     socket.on('disconnect', () => {
         console.log('Disconnected');
         updateConnectionStatus(false);
         document.getElementById('connection-message').textContent = 'Disconnected';
+        showNotification('Disconnected from server', 'danger', true);
     });
     
     socket.on('user-registered', (data) => {
@@ -58,11 +85,11 @@ function initSocket() {
         // Update waiting screen
         document.getElementById('waiting-screen').innerHTML = `
             <i class="bi bi-person-check display-1 text-success mb-3"></i>
-            <h4 class="mb-3 text-light">Welcome, ${username}!</h4>
+            <h4 class="mb-3">Welcome, ${username}!</h4>
             <p class="text-muted">Create a game or join an existing one</p>
         `;
         
-        showNotification('Welcome! You can now create or join games.', 'success');
+        showNotification('Welcome! You can now create or join games.', 'success', true);
         
         // Get games list
         socket.emit('get-games');
@@ -78,7 +105,7 @@ function initSocket() {
         currentGame = game;
         showGameScreen(game);
         updateGameInfo(game);
-        showNotification(`Game "${game.name}" created! Waiting for opponent...`, 'info');
+        showNotification(`Game "${game.name}" created! Waiting for opponent...`, 'info', true);
     });
     
     socket.on('game-started', (game) => {
@@ -110,7 +137,7 @@ function initSocket() {
         updateGameState();
         
         const opponent = game.players.find(p => p !== username);
-        showNotification(`Game started! You are ${mySymbol} vs ${opponent}. ${isMyTurn ? 'Your turn!' : 'Opponent\'s turn!'}`, 'success');
+        showNotification(`Game started! You are ${mySymbol} vs ${opponent}. ${isMyTurn ? 'Your turn!' : 'Opponent\'s turn!'}`, 'success', true);
         
         // Enable chat
         enableChat();
@@ -142,7 +169,7 @@ function initSocket() {
                 message = '😢 You lost!';
             }
             
-            showNotification(message, data.winner === username ? 'success' : 'warning');
+            showNotification(message, data.winner === username ? 'success' : 'warning', true);
             
             const resultMessage = document.getElementById('result-message');
             const gameResult = document.getElementById('game-result');
@@ -166,7 +193,7 @@ function initSocket() {
     
     socket.on('player-left', (player) => {
         console.log('Player left:', player);
-        showNotification(`${player} left the game`, 'warning');
+        showNotification(`${player} left the game`, 'warning', true);
         
         if (currentGame) {
             currentGame.status = 'waiting';
@@ -176,8 +203,10 @@ function initSocket() {
         }
     });
     
-    socket.on('rematch-offered', (player) => {
-        showNotification(`${player} wants a rematch! Click "Rematch" button to accept.`, 'info');
+    socket.on('rematch-offered', (data) => {
+        const { player, gameId } = data;
+        showRematchRequest(player, gameId);
+        showNotification(`${player} wants a rematch!`, 'info', true);
     });
     
     socket.on('rematch-started', (game) => {
@@ -200,16 +229,23 @@ function initSocket() {
         
         // Hide result
         document.getElementById('game-result').style.display = 'none';
+        // Hide any rematch request
+        hideRematchRequest();
         
         // Update display
         initGameBoard();
         updateGameState();
         
-        showNotification('Rematch started! X goes first.', 'success');
+        showNotification('Rematch started! X goes first.', 'success', true);
+    });
+    
+    socket.on('rematch-rejected', (player) => {
+        showNotification(`${player} rejected the rematch request`, 'warning', true);
+        hideRematchRequest();
     });
     
     socket.on('rematch-pending', (message) => {
-        showNotification(message, 'info');
+        showNotification(message, 'info', true);
     });
     
     socket.on('chat-message', (data) => {
@@ -237,7 +273,7 @@ function initSocket() {
     
     socket.on('error', (error) => {
         console.error('Socket error:', error);
-        showNotification(error, 'danger');
+        showNotification(error, 'danger', true);
     });
 }
 
@@ -248,12 +284,12 @@ function setupEventListeners() {
         const name = usernameInput.value.trim();
         
         if (!name) {
-            showNotification('Please enter a name', 'warning');
+            showNotification('Please enter a name', 'warning', true);
             return;
         }
         
         if (name.length < 2) {
-            showNotification('Name must be at least 2 characters', 'warning');
+            showNotification('Name must be at least 2 characters', 'warning', true);
             return;
         }
         
@@ -271,7 +307,7 @@ function setupEventListeners() {
     // Create game
     document.getElementById('create-game-btn').addEventListener('click', function() {
         if (!username) {
-            showNotification('Please enter your name first', 'warning');
+            showNotification('Please enter your name first', 'warning', true);
             return;
         }
         
@@ -303,7 +339,7 @@ function setupEventListeners() {
                     player: username
                 });
                 hideGameScreen();
-                showNotification('You left the game', 'info');
+                showNotification('You left the game', 'info', true);
             }
         }
     });
@@ -319,14 +355,14 @@ function setupEventListeners() {
                 gameId: currentGame.id,
                 player: username
             });
-            showNotification('Rematch requested! Waiting for opponent...', 'info');
+            showNotification('Rematch requested! Waiting for opponent...', 'info', true);
         }
     });
     
     // New game
     document.getElementById('new-game-btn').addEventListener('click', function() {
         hideGameScreen();
-        showNotification('Returned to lobby', 'info');
+        showNotification('Returned to lobby', 'info', true);
     });
     
     // Send chat message
@@ -338,6 +374,18 @@ function setupEventListeners() {
             sendChatMessage();
         }
     });
+    
+    // Theme toggle
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+    }
+    
+    // Clear notifications
+    const clearNotificationsBtn = document.getElementById('clear-notifications');
+    if (clearNotificationsBtn) {
+        clearNotificationsBtn.addEventListener('click', clearNotifications);
+    }
 }
 
 function sendChatMessage() {
@@ -347,7 +395,7 @@ function sendChatMessage() {
     if (!message) return;
     
     if (!currentGame || !username) {
-        showNotification('You must be in a game to chat', 'warning');
+        showNotification('You must be in a game to chat', 'warning', true);
         return;
     }
     
@@ -427,6 +475,11 @@ function initGameBoard() {
         cell.dataset.index = i;
         cell.textContent = currentBoard[i] || '';
         
+        // Add animation class
+        if (!currentBoard[i]) {
+            cell.classList.add('cell-empty');
+        }
+        
         cell.addEventListener('click', function() {
             handleCellClick(i);
         });
@@ -441,17 +494,17 @@ function handleCellClick(index) {
     console.log(`Cell ${index} clicked. Game active: ${gameActive}, My turn: ${isMyTurn}, Cell value: ${currentBoard[index]}`);
     
     if (!gameActive) {
-        showNotification('Game is not active yet', 'warning');
+        showNotification('Game is not active yet', 'warning', true);
         return;
     }
     
     if (!isMyTurn) {
-        showNotification('Wait for your turn!', 'warning');
+        showNotification('Wait for your turn!', 'warning', true);
         return;
     }
     
     if (currentBoard[index]) {
-        showNotification('This cell is already taken!', 'warning');
+        showNotification('This cell is already taken!', 'warning', true);
         return;
     }
     
@@ -476,6 +529,11 @@ function updateBoardDisplay() {
         cell.textContent = cellValue;
         cell.className = 'cell';
         
+        // Add animation class for empty cells
+        if (!cellValue) {
+            cell.classList.add('cell-empty');
+        }
+        
         if (cellValue === 'X') {
             cell.classList.add('x');
         } else if (cellValue === 'O') {
@@ -487,6 +545,7 @@ function updateBoardDisplay() {
             cell.classList.add('disabled');
         } else {
             cell.classList.remove('disabled');
+            cell.classList.add('cell-hover');
         }
     });
 }
@@ -510,7 +569,7 @@ function updateGamesList(games) {
     } else {
         games.forEach(game => {
             const gameItem = document.createElement('div');
-            gameItem.className = 'game-item p-3 mb-2 bg-dark rounded';
+            gameItem.className = 'game-item p-3 mb-2 rounded';
             gameItem.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
@@ -518,9 +577,9 @@ function updateGamesList(games) {
                         <small class="text-muted">
                             <i class="bi bi-person-fill"></i> ${game.host} | 
                             <i class="bi bi-people-fill"></i> ${game.playerCount}/2 |
-                            <span class="${game.status === 'waiting' ? 'text-warning' : 
-                                        game.status === 'playing' ? 'text-success' : 
-                                        'text-secondary'}">
+                            <span class="badge ${game.status === 'waiting' ? 'bg-warning' : 
+                                        game.status === 'playing' ? 'bg-success' : 
+                                        'bg-secondary'}">
                                 ${game.status === 'waiting' ? '⏳ Waiting' : 
                                  game.status === 'playing' ? '🎮 Playing' : 
                                  '🏁 Finished'}
@@ -538,17 +597,17 @@ function updateGamesList(games) {
             const joinBtn = gameItem.querySelector('.join-game-btn');
             joinBtn.addEventListener('click', () => {
                 if (!username) {
-                    showNotification('Please enter your name first', 'warning');
+                    showNotification('Please enter your name first', 'warning', true);
                     return;
                 }
                 
                 if (game.playerCount >= 2) {
-                    showNotification('Game is full!', 'warning');
+                    showNotification('Game is full!', 'warning', true);
                     return;
                 }
                 
                 if (game.status === 'playing' || game.status === 'finished') {
-                    showNotification('Game is already in progress', 'warning');
+                    showNotification('Game is already in progress', 'warning', true);
                     return;
                 }
                 
@@ -558,7 +617,7 @@ function updateGamesList(games) {
                     player: username
                 });
                 
-                showNotification(`Joining "${game.name}"...`, 'info');
+                showNotification(`Joining "${game.name}"...`, 'info', true);
             });
         });
     }
@@ -586,7 +645,7 @@ function hideGameScreen() {
     document.getElementById('waiting-screen').style.display = 'block';
     document.getElementById('waiting-screen').innerHTML = `
         <i class="bi bi-joystick display-1 text-muted mb-3"></i>
-        <h4 class="mb-3 text-light">Welcome back, ${username}!</h4>
+        <h4 class="mb-3">Welcome back, ${username}!</h4>
         <p class="text-muted">Create a game or join an existing one</p>
     `;
     document.getElementById('game-board-container').style.display = 'none';
@@ -603,6 +662,9 @@ function hideGameScreen() {
     
     // Disable chat
     disableChat();
+    
+    // Hide rematch request
+    hideRematchRequest();
     
     // Reset game state
     currentBoard = Array(9).fill('');
@@ -690,9 +752,9 @@ function updateTurnIndicator() {
         if (currentGame.winner === 'draw') {
             turnIndicator.textContent = '🏁 Game ended in a draw';
         } else if (currentGame.winner === username) {
-            turnIndicator.textContent = '🏆 YOU WON! Click "Rematch" for another game';
+            turnIndicator.textContent = '🏆 YOU WON!';
         } else {
-            turnIndicator.textContent = '😢 Game finished - Click "Rematch" for another game';
+            turnIndicator.textContent = '😢 Game finished';
         }
         turnIndicator.className = 'alert alert-info';
         return;
@@ -721,11 +783,31 @@ function updateConnectionStatus(connected) {
     }
 }
 
-function showNotification(message, type = 'info') {
-    // Create notification
+function showNotification(message, type = 'info', store = false) {
+    // Store notification if requested
+    if (store) {
+        const notification = {
+            id: Date.now(),
+            message: message,
+            type: type,
+            timestamp: new Date().toISOString(),
+            read: false
+        };
+        notifications.unshift(notification);
+        
+        // Keep only max notifications
+        if (notifications.length > MAX_NOTIFICATIONS) {
+            notifications.pop();
+        }
+        
+        saveNotifications();
+        updateNotificationsBadge();
+    }
+    
+    // Create floating notification
     const notification = document.createElement('div');
-    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed notification-toast`;
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px; animation: slideInRight 0.3s ease-out;';
     
     notification.innerHTML = `
         <div class="d-flex align-items-center">
@@ -740,12 +822,64 @@ function showNotification(message, type = 'info') {
     
     document.body.appendChild(notification);
     
-    // Auto remove after 3 seconds
+    // Auto remove after 5 seconds
     setTimeout(() => {
         if (notification.parentNode) {
             notification.remove();
         }
-    }, 3000);
+    }, 5000);
+}
+
+function showRematchRequest(player, gameId) {
+    const rematchRequest = document.getElementById('rematch-request');
+    if (!rematchRequest) return;
+    
+    rematchRequest.innerHTML = `
+        <div class="alert alert-info alert-dismissible fade show">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-arrow-clockwise me-2"></i>
+                <div class="flex-grow-1">
+                    <strong>${player}</strong> wants a rematch!
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-success" id="accept-rematch">
+                        <i class="bi bi-check-lg"></i> Accept
+                    </button>
+                    <button class="btn btn-danger" id="reject-rematch">
+                        <i class="bi bi-x-lg"></i> Reject
+                    </button>
+                </div>
+                <button type="button" class="btn-close ms-2" data-bs-dismiss="alert"></button>
+            </div>
+        </div>
+    `;
+    
+    rematchRequest.style.display = 'block';
+    
+    // Add event listeners
+    document.getElementById('accept-rematch').addEventListener('click', function() {
+        socket.emit('accept-rematch', {
+            gameId: gameId,
+            player: username
+        });
+        rematchRequest.style.display = 'none';
+    });
+    
+    document.getElementById('reject-rematch').addEventListener('click', function() {
+        socket.emit('reject-rematch', {
+            gameId: gameId,
+            player: username
+        });
+        rematchRequest.style.display = 'none';
+    });
+}
+
+function hideRematchRequest() {
+    const rematchRequest = document.getElementById('rematch-request');
+    if (rematchRequest) {
+        rematchRequest.style.display = 'none';
+        rematchRequest.innerHTML = '';
+    }
 }
 
 function loadUserStats() {
@@ -775,29 +909,57 @@ function updateStatsDisplay() {
     if (statsContainer) {
         statsContainer.innerHTML = `
             <div class="col-6 mb-3">
-                <div class="p-3 bg-dark rounded">
-                    <div class="h3 mb-1 text-primary">${userStats.gamesPlayed}</div>
+                <div class="p-3 bg-dark rounded stats-card">
+                    <div class="h2 mb-1 text-primary">${userStats.gamesPlayed}</div>
                     <small>Games</small>
                 </div>
             </div>
             <div class="col-6 mb-3">
-                <div class="p-3 bg-dark rounded">
-                    <div class="h3 mb-1 text-success">${userStats.wins}</div>
+                <div class="p-3 bg-dark rounded stats-card">
+                    <div class="h2 mb-1 text-success">${userStats.wins}</div>
                     <small>Wins</small>
                 </div>
             </div>
             <div class="col-6">
-                <div class="p-3 bg-dark rounded">
-                    <div class="h3 mb-1 text-warning">${userStats.losses}</div>
+                <div class="p-3 bg-dark rounded stats-card">
+                    <div class="h2 mb-1 text-warning">${userStats.losses}</div>
                     <small>Losses</small>
                 </div>
             </div>
             <div class="col-6">
-                <div class="p-3 bg-dark rounded">
-                    <div class="h3 mb-1 text-info">${winRate}%</div>
+                <div class="p-3 bg-dark rounded stats-card">
+                    <div class="h2 mb-1 text-info">${winRate}%</div>
                     <small>Win Rate</small>
                 </div>
             </div>
         `;
     }
+}
+
+function loadNotifications() {
+    const savedNotifications = localStorage.getItem(`tic-tac-toe-notifications-${username}`);
+    if (savedNotifications) {
+        notifications = JSON.parse(savedNotifications);
+        updateNotificationsBadge();
+    }
+}
+
+function saveNotifications() {
+    localStorage.setItem(`tic-tac-toe-notifications-${username}`, JSON.stringify(notifications));
+}
+
+function updateNotificationsBadge() {
+    const unreadCount = notifications.filter(n => !n.read).length;
+    const badge = document.getElementById('notifications-badge');
+    if (badge) {
+        badge.textContent = unreadCount;
+        badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+    }
+}
+
+function clearNotifications() {
+    notifications = [];
+    saveNotifications();
+    updateNotificationsBadge();
+    showNotification('Notifications cleared', 'info', true);
 }
