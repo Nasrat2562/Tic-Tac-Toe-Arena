@@ -7,66 +7,123 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3a0ca3;
+            --accent-color: #7209b7;
+            --success-color: #4cc9f0;
+            --warning-color: #f72585;
+            --dark-bg: #0a0a0a;
+            --light-bg: #f8f9fa;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --text-light: #ffffff;
+            --text-dark: #212529;
+        }
+        
+        [data-theme="dark"] {
+            --bg-color: var(--dark-bg);
+            --text-color: var(--text-light);
+            --card-bg: rgba(255, 255, 255, 0.05);
+        }
+        
+        [data-theme="light"] {
+            --bg-color: var(--light-bg);
+            --text-color: var(--text-dark);
+            --card-bg: rgba(0, 0, 0, 0.03);
+        }
+        
         body {
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            background: var(--bg-color);
+            color: var(--text-color);
             min-height: 100vh;
-            color: white;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            transition: all 0.3s ease;
         }
         
         .glass-card {
-            background: rgba(255, 255, 255, 0.08);
+            background: var(--card-bg);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
         }
         
         .game-board {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            max-width: 400px;
+            gap: 15px;
+            max-width: 450px;
             margin: 0 auto;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 15px;
-            border: 2px solid rgba(0, 123, 255, 0.3);
+            padding: 25px;
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 2px solid var(--primary-color);
+            box-shadow: 0 10px 30px rgba(67, 97, 238, 0.2);
         }
         
         .cell {
             aspect-ratio: 1;
             background: rgba(255, 255, 255, 0.05);
-            border: 3px solid #007bff;
-            border-radius: 10px;
-            font-size: 3rem;
+            border: 3px solid var(--primary-color);
+            border-radius: 15px;
+            font-size: 4rem;
             font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: var(--text-color);
+            position: relative;
+            overflow: hidden;
         }
         
-        .cell:hover:not(.disabled) {
-            background: rgba(0, 123, 255, 0.2);
-            transform: scale(1.05);
+        .cell::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s;
+        }
+        
+        .cell:hover::before {
+            transform: translateX(100%);
+        }
+        
+        .cell-empty {
+            background: rgba(67, 97, 238, 0.1);
+        }
+        
+        .cell-hover:hover:not(.disabled) {
+            background: rgba(67, 97, 238, 0.2);
+            transform: scale(1.05) rotate(5deg);
+            box-shadow: 0 5px 20px rgba(67, 97, 238, 0.4);
         }
         
         .cell.x {
-            color: #17a2b8;
-            text-shadow: 0 0 15px rgba(23, 162, 184, 0.7);
+            color: #4cc9f0;
+            text-shadow: 0 0 20px rgba(76, 201, 240, 0.7);
         }
         
         .cell.o {
-            color: #ffc107;
-            text-shadow: 0 0 15px rgba(255, 193, 7, 0.7);
+            color: #f72585;
+            text-shadow: 0 0 20px rgba(247, 37, 133, 0.7);
         }
         
         .cell.disabled {
             cursor: not-allowed;
-            opacity: 0.6;
+            opacity: 0.5;
+            transform: none !important;
         }
         
         .cell.winning {
@@ -79,64 +136,204 @@
             50% { transform: scale(1.05); }
         }
         
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
         .status-dot {
-            width: 10px;
-            height: 10px;
+            width: 12px;
+            height: 12px;
             border-radius: 50%;
             display: inline-block;
-            margin-left: 5px;
+            margin-left: 8px;
+            animation: pulse 2s infinite;
         }
         
         .connected {
             background: #28a745;
-            box-shadow: 0 0 10px #28a745;
+            box-shadow: 0 0 15px #28a745;
         }
         
         .disconnected {
             background: #dc3545;
-            box-shadow: 0 0 10px #dc3545;
+            box-shadow: 0 0 15px #dc3545;
         }
         
         .chat-box {
-            height: 200px;
+            height: 250px;
             overflow-y: auto;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 10px;
-            padding: 10px;
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 15px;
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
         .game-item {
             transition: all 0.3s ease;
-            border-left: 4px solid transparent;
+            border-left: 5px solid transparent;
+            background: var(--card-bg);
         }
         
         .game-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            border-left-color: #007bff;
+            background: rgba(67, 97, 238, 0.1);
+            border-left-color: var(--primary-color);
+            transform: translateX(5px);
         }
         
         .turn-indicator {
-            font-size: 1.2rem;
+            font-size: 1.3rem;
             font-weight: 600;
-            padding: 10px 20px;
-            border-radius: 10px;
+            padding: 15px 25px;
+            border-radius: 15px;
             display: inline-block;
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .stats-card {
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .stats-card:hover {
+            border-color: var(--primary-color);
+            transform: translateY(-5px);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(45deg, #4361ee, #3a0ca3, #7209b7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(45deg, #4361ee, #3a0ca3);
+            border: none;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(67, 97, 238, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(45deg, #4cc9f0, #4895ef);
+            border: none;
+        }
+        
+        .btn-warning {
+            background: linear-gradient(45deg, #f72585, #b5179e);
+            border: none;
+        }
+        
+        .notification-toast {
+            animation: slideInRight 0.3s ease-out;
+        }
+        
+        .rematch-request {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            min-width: 350px;
+            animation: slideInRight 0.3s ease-out;
+        }
+        
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--card-bg);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary-color);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--secondary-color);
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .game-board {
+                max-width: 350px;
+                gap: 10px;
+                padding: 15px;
+            }
+            
+            .cell {
+                font-size: 3rem;
+            }
+            
+            .rematch-request {
+                left: 10px;
+                right: 10px;
+                min-width: auto;
+            }
         }
     </style>
 </head>
-<body>
+<body data-theme="dark">
     <div class="container py-4">
         <div class="row">
             <!-- Header -->
             <div class="col-12 mb-4">
                 <div class="d-flex justify-content-between align-items-center">
-                    <h1 class="h3 mb-0">
-                        <i class="bi bi-controller me-2"></i>
-                        TicTacToe Multiplayer
-                    </h1>
+                    <div>
+                        <h1 class="h3 mb-0 gradient-text">
+                            <i class="bi bi-controller me-2"></i>
+                            TicTacToe <span class="d-none d-md-inline">Multiplayer</span>
+                        </h1>
+                        <small class="text-muted">Play with friends in real-time</small>
+                    </div>
                     <div class="d-flex align-items-center gap-3">
-                        <span id="username-display" class="text-warning">Guest</span>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-primary position-relative" type="button" id="notificationsDropdown" data-bs-toggle="dropdown">
+                                <i class="bi bi-bell"></i>
+                                <span id="notifications-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none;">
+                                    0
+                                </span>
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 300px;">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="mb-0">Notifications</h6>
+                                    <button class="btn btn-sm btn-outline-danger" id="clear-notifications">
+                                        <i class="bi bi-trash"></i> Clear
+                                    </button>
+                                </div>
+                                <div id="notifications-list" class="small">
+                                    <!-- Notifications will be loaded here -->
+                                    <div class="text-center text-muted p-3">
+                                        No notifications yet
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <span id="username-display" class="text-warning fw-bold">Guest</span>
+                        
+                        <button class="btn btn-outline-primary" id="theme-toggle">
+                            <i id="theme-icon" class="bi bi-moon-fill"></i>
+                        </button>
+                        
                         <div class="d-flex align-items-center">
                             <span class="me-2 small">Status</span>
                             <div id="connection-status" class="status-dot disconnected"></div>
@@ -155,7 +352,7 @@
                         <div class="mb-3">
                             <label class="form-label">Enter Your Name</label>
                             <div class="input-group">
-                                <input type="text" id="username-input" class="form-control bg-dark text-white" 
+                                <input type="text" id="username-input" class="form-control" 
                                        placeholder="Your name" maxlength="20">
                                 <button id="set-username" class="btn btn-primary">
                                     <i class="bi bi-check"></i> Start
@@ -169,7 +366,7 @@
                         <div class="mb-3">
                             <label class="form-label">Create New Game</label>
                             <div class="input-group">
-                                <input type="text" id="game-name-input" class="form-control bg-dark text-white" 
+                                <input type="text" id="game-name-input" class="form-control" 
                                        placeholder="Game name (optional)">
                                 <button id="create-game-btn" class="btn btn-success">
                                     <i class="bi bi-plus-circle"></i> Create
@@ -205,26 +402,26 @@
                     <h4 class="h5 mb-4"><i class="bi bi-trophy me-2"></i>Your Stats</h4>
                     <div id="player-stats" class="row text-center">
                         <div class="col-6 mb-3">
-                            <div class="p-3 bg-dark rounded">
-                                <div class="h3 mb-1 text-primary">0</div>
+                            <div class="p-3 bg-dark rounded stats-card">
+                                <div class="h2 mb-1 text-primary">0</div>
                                 <small>Games</small>
                             </div>
                         </div>
                         <div class="col-6 mb-3">
-                            <div class="p-3 bg-dark rounded">
-                                <div class="h3 mb-1 text-success">0</div>
+                            <div class="p-3 bg-dark rounded stats-card">
+                                <div class="h2 mb-1 text-success">0</div>
                                 <small>Wins</small>
                             </div>
                         </div>
                         <div class="col-6">
-                            <div class="p-3 bg-dark rounded">
-                                <div class="h3 mb-1 text-warning">0</div>
+                            <div class="p-3 bg-dark rounded stats-card">
+                                <div class="h2 mb-1 text-warning">0</div>
                                 <small>Losses</small>
                             </div>
                         </div>
                         <div class="col-6">
-                            <div class="p-3 bg-dark rounded">
-                                <div class="h3 mb-1 text-info">0%</div>
+                            <div class="p-3 bg-dark rounded stats-card">
+                                <div class="h2 mb-1 text-info">0%</div>
                                 <small>Win Rate</small>
                             </div>
                         </div>
@@ -234,6 +431,9 @@
             
             <!-- Right Panel -->
             <div class="col-lg-8">
+                <!-- Rematch Request (Fixed Position) -->
+                <div id="rematch-request" class="rematch-request" style="display: none;"></div>
+                
                 <div class="glass-card p-4 h-100">
                     <!-- Waiting Screen -->
                     <div id="waiting-screen" class="text-center py-5">
@@ -251,7 +451,7 @@
                     <!-- Game Board -->
                     <div id="game-board-container" style="display: none;">
                         <div class="text-center mb-4">
-                            <h3 id="game-name-display" class="h4 mb-3"></h3>
+                            <h3 id="game-name-display" class="h4 mb-3 gradient-text"></h3>
                             <div id="turn-indicator" class="turn-indicator alert alert-info">
                                 Waiting for game to start...
                             </div>
@@ -262,8 +462,8 @@
                         
                         <!-- Game Result -->
                         <div id="game-result" class="text-center mb-4" style="display: none;">
-                            <h4 id="result-message" class="h3 mb-3"></h4>
-                            <div class="d-flex justify-content-center gap-2">
+                            <h4 id="result-message" class="h3 mb-3 gradient-text"></h4>
+                            <div class="d-flex justify-content-center gap-3">
                                 <button id="rematch-btn" class="btn btn-primary">
                                     <i class="bi bi-arrow-clockwise"></i> Rematch
                                 </button>
@@ -275,14 +475,14 @@
                         
                         <!-- Chat -->
                         <div id="chat-section" style="display: none;">
-                            <div class="card bg-dark">
+                            <div class="card" style="background: var(--card-bg); border: 1px solid rgba(255, 255, 255, 0.1);">
                                 <div class="card-header">
                                     <h6 class="mb-0"><i class="bi bi-chat me-2"></i>Game Chat</h6>
                                 </div>
                                 <div class="card-body">
                                     <div id="chat-messages" class="chat-box mb-3"></div>
                                     <div class="input-group">
-                                        <input type="text" id="chat-input" class="form-control bg-dark text-white" 
+                                        <input type="text" id="chat-input" class="form-control" 
                                                placeholder="Type message..." disabled>
                                         <button id="send-chat-btn" class="btn btn-primary" disabled>
                                             <i class="bi bi-send"></i>
@@ -298,13 +498,14 @@
     </div>
     
     <!-- Footer -->
-    <footer class="text-center py-3 text-muted">
+    <footer class="text-center py-3 text-muted mt-4">
         <div class="container">
             <small>Real-time Multiplayer TicTacToe | Made with ❤️</small>
         </div>
     </footer>
     
     <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script src="game.js"></script>
 </body>
