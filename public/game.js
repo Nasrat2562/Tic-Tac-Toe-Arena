@@ -13,6 +13,7 @@ let userStats = {
     losses: 0,
     draws: 0
 };
+let isUpdatingStats = false; // Flag to prevent double updates
 
 console.log('Game.js loaded');
 
@@ -46,7 +47,7 @@ function initSocket() {
         username = data.username;
         document.getElementById('username-display').textContent = username;
         
-        // Load user stats
+        // Load user stats from server only
         loadUserStats();
         
         // Show game sections
@@ -135,23 +136,11 @@ function initSocket() {
             let message = '';
             if (data.winner === 'draw') {
                 message = '🎭 Game ended in a draw!';
-                userStats.draws++;
             } else if (data.winner === username) {
                 message = '🎉 YOU WIN! 🏆';
-                userStats.wins++;
             } else {
                 message = '😢 You lost!';
-                userStats.losses++;
             }
-            
-            if (data.winner !== 'draw') {
-                userStats.gamesPlayed++;
-            }
-            
-            // Update stats display
-            updateStatsDisplay();
-            // Save stats to localStorage
-            saveUserStats();
             
             showNotification(message, data.winner === username ? 'success' : 'warning');
             
@@ -169,6 +158,9 @@ function initSocket() {
                 currentGame.winner = data.winner;
                 updateGameInfo(currentGame);
             }
+            
+            // Request updated stats from server (server handles stats)
+            socket.emit('get-stats', { username: username });
         }
     });
     
@@ -222,13 +214,25 @@ function initSocket() {
     
     socket.on('chat-message', (data) => {
         console.log('Chat message received:', data);
-        addChatMessage(data.sender, data.message, data.sender === username);
+        // Only add message if it's from opponent
+        if (data.sender !== username) {
+            addChatMessage(data.sender, data.message, false);
+        }
+    });
+    
+    socket.on('chat-message-sent', (data) => {
+        console.log('Chat message confirmed sent:', data);
+        // This is our own message sent back from server
+        addChatMessage(data.sender, data.message, true);
     });
     
     socket.on('user-stats', (stats) => {
         console.log('User stats received:', stats);
-        userStats = { ...userStats, ...stats };
+        userStats = { ...stats };
         updateStatsDisplay();
+        
+        // Also save to localStorage for persistence
+        localStorage.setItem(`tic-tac-toe-stats-${username}`, JSON.stringify(userStats));
     });
     
     socket.on('error', (error) => {
@@ -349,15 +353,14 @@ function sendChatMessage() {
     
     console.log('Sending chat message:', message);
     
+    // Send to server only - server will broadcast back
     socket.emit('chat-message', {
         gameId: currentGame.id,
         sender: username,
         message: message
     });
     
-    // Add message locally immediately
-    addChatMessage(username, message, true);
-    
+    // Clear input - don't add locally, wait for server confirmation
     chatInput.value = '';
     chatInput.focus();
 }
@@ -389,6 +392,7 @@ function enableChat() {
         chatInput.disabled = false;
         chatInput.placeholder = 'Type your message...';
         sendChatBtn.disabled = false;
+        chatInput.focus();
     }
 }
 
@@ -400,6 +404,7 @@ function disableChat() {
         chatInput.disabled = true;
         chatInput.placeholder = 'Join a game to chat...';
         sendChatBtn.disabled = true;
+        chatInput.value = '';
     }
 }
 
@@ -744,29 +749,21 @@ function showNotification(message, type = 'info') {
 }
 
 function loadUserStats() {
+    // Request stats from server only
+    socket.emit('get-stats', { username: username });
+    
+    // Also load from localStorage as backup
     const savedStats = localStorage.getItem(`tic-tac-toe-stats-${username}`);
     if (savedStats) {
-        userStats = JSON.parse(savedStats);
-        updateStatsDisplay();
-    } else {
-        // Initialize new stats
-        userStats = {
-            gamesPlayed: 0,
-            wins: 0,
-            losses: 0,
-            draws: 0
-        };
-        updateStatsDisplay();
+        const localStats = JSON.parse(savedStats);
+        // Only use localStorage if server hasn't responded yet
+        setTimeout(() => {
+            if (userStats.gamesPlayed === 0) {
+                userStats = { ...localStats };
+                updateStatsDisplay();
+            }
+        }, 1000);
     }
-    
-    // Request server-side stats too
-    socket.emit('get-stats', { username: username });
-}
-
-function saveUserStats() {
-    localStorage.setItem(`tic-tac-toe-stats-${username}`, JSON.stringify(userStats));
-    // Also send to server
-    socket.emit('update-stats', { username: username, stats: userStats });
 }
 
 function updateStatsDisplay() {
