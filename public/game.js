@@ -1,3 +1,5 @@
+[file name]: game.js
+[file content begin]
 // Game State
 let currentBoard = Array(9).fill('');
 let currentPlayer = 'X';
@@ -34,6 +36,70 @@ function initTheme() {
     const savedTheme = localStorage.getItem('tic-tac-toe-theme') || 'dark';
     document.body.setAttribute('data-theme', savedTheme);
     updateThemeIcon(savedTheme);
+    updateThemeStyles(savedTheme);
+}
+
+function updateThemeStyles(theme) {
+    // Update Bootstrap theme colors for better visibility
+    const root = document.documentElement;
+    
+    if (theme === 'light') {
+        root.style.setProperty('--bs-body-color', '#212529');
+        root.style.setProperty('--bs-body-bg', '#f8f9fa');
+        root.style.setProperty('--bs-secondary-color', '#6c757d');
+        root.style.setProperty('--bs-light-bg', '#e9ecef');
+        root.style.setProperty('--bs-dark-bg', '#343a40');
+        root.style.setProperty('--bs-border-color', '#dee2e6');
+        
+        // Update text colors
+        document.querySelectorAll('.text-muted').forEach(el => {
+            el.style.color = '#6c757d !important';
+        });
+        
+        document.querySelectorAll('.bg-dark').forEach(el => {
+            if (!el.classList.contains('stats-card')) {
+                el.classList.replace('bg-dark', 'bg-light');
+                el.classList.add('border', 'border-secondary');
+            }
+        });
+        
+        // Update alerts
+        document.querySelectorAll('.alert').forEach(el => {
+            if (el.classList.contains('alert-secondary')) {
+                el.style.backgroundColor = '#e9ecef';
+                el.style.color = '#212529';
+                el.style.borderColor = '#dee2e6';
+            }
+        });
+    } else {
+        root.style.setProperty('--bs-body-color', '#f8f9fa');
+        root.style.setProperty('--bs-body-bg', '#212529');
+        root.style.setProperty('--bs-secondary-color', '#adb5bd');
+        root.style.setProperty('--bs-light-bg', '#343a40');
+        root.style.setProperty('--bs-dark-bg', '#121416');
+        root.style.setProperty('--bs-border-color', '#495057');
+        
+        // Update text colors
+        document.querySelectorAll('.text-muted').forEach(el => {
+            el.style.color = '#adb5bd !important';
+        });
+        
+        document.querySelectorAll('.bg-light').forEach(el => {
+            if (!el.classList.contains('stats-card') && el.classList.contains('bg-light')) {
+                el.classList.replace('bg-light', 'bg-dark');
+                el.classList.remove('border', 'border-secondary');
+            }
+        });
+        
+        // Update alerts
+        document.querySelectorAll('.alert').forEach(el => {
+            if (el.classList.contains('alert-secondary')) {
+                el.style.backgroundColor = '#343a40';
+                el.style.color = '#f8f9fa';
+                el.style.borderColor = '#495057';
+            }
+        });
+    }
 }
 
 function toggleTheme() {
@@ -42,6 +108,7 @@ function toggleTheme() {
     document.body.setAttribute('data-theme', newTheme);
     localStorage.setItem('tic-tac-toe-theme', newTheme);
     updateThemeIcon(newTheme);
+    updateThemeStyles(newTheme);
 }
 
 function updateThemeIcon(theme) {
@@ -302,15 +369,25 @@ function initSocket() {
         }
     });
     
-    socket.on('player-left', (player) => {
-        console.log('Player left:', player);
-        showNotification(`${player} left the game`, 'warning', true);
+    socket.on('player-left', (data) => {
+        console.log('Player left:', data);
+        const { player, message } = data;
+        showNotification(message, 'warning', true);
         
         if (currentGame) {
             currentGame.status = 'waiting';
             gameActive = false;
             updateGameInfo(currentGame);
             updateTurnIndicator();
+        }
+    });
+    
+    socket.on('player-left-self', (data) => {
+        console.log('You left the game:', data);
+        showNotification(data.message, 'info', true);
+        
+        if (currentGame) {
+            hideGameScreen();
         }
     });
     
@@ -377,6 +454,14 @@ function initSocket() {
         console.log('Chat message confirmed sent:', data);
         // This is our own message sent back from server
         addChatMessage(data.sender, data.message, true);
+    });
+    
+    socket.on('chat-popup-notification', (data) => {
+        console.log('Chat popup notification:', data);
+        // Show chat popup for incoming messages
+        if (data.sender !== username) {
+            showChatPopup(data.sender, data.message);
+        }
     });
     
     socket.on('user-stats', (stats) => {
@@ -455,7 +540,6 @@ function setupEventListeners() {
                     gameId: currentGame.id,
                     player: username
                 });
-                hideGameScreen();
                 showNotification('You left the game', 'info', true);
             }
         }
@@ -538,7 +622,7 @@ function addChatMessage(sender, message, isOwnMessage) {
     messageElement.className = `mb-2 ${isOwnMessage ? 'text-end' : ''}`;
     
     messageElement.innerHTML = `
-        <div class="d-inline-block p-2 rounded ${isOwnMessage ? 'bg-primary text-white' : 'bg-secondary'}">
+        <div class="d-inline-block p-2 rounded ${isOwnMessage ? 'bg-primary text-white' : 'bg-secondary text-white'}">
             <small class="fw-bold">${isOwnMessage ? 'You' : sender}</small>
             <div>${message}</div>
             <small class="opacity-75">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
@@ -547,6 +631,60 @@ function addChatMessage(sender, message, isOwnMessage) {
     
     chatMessages.appendChild(messageElement);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function showChatPopup(sender, message) {
+    // Create chat popup notification
+    const popup = document.createElement('div');
+    popup.className = 'position-fixed chat-popup-notification';
+    popup.style.cssText = `
+        bottom: 20px;
+        right: 20px;
+        z-index: 9999;
+        min-width: 300px;
+        max-width: 400px;
+        animation: slideInUp 0.3s ease-out;
+        background: linear-gradient(135deg, var(--bs-primary) 0%, var(--bs-info) 100%);
+        color: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        overflow: hidden;
+    `;
+    
+    popup.innerHTML = `
+        <div class="p-3">
+            <div class="d-flex align-items-center mb-2">
+                <i class="bi bi-chat-left-text-fill me-2 fs-5"></i>
+                <strong class="flex-grow-1">New message from ${sender}</strong>
+                <button type="button" class="btn-close btn-close-white" onclick="this.parentElement.parentElement.remove()"></button>
+            </div>
+            <div class="p-2 bg-dark bg-opacity-50 rounded">
+                <p class="mb-0">${message}</p>
+            </div>
+            <div class="mt-2 text-end">
+                <small class="text-white-50">Click to open chat</small>
+            </div>
+        </div>
+    `;
+    
+    // Add click event to focus chat input
+    popup.addEventListener('click', function() {
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) {
+            chatInput.focus();
+        }
+        this.remove();
+    });
+    
+    // Auto remove after 10 seconds
+    setTimeout(() => {
+        if (popup.parentNode) {
+            popup.remove();
+        }
+    }, 10000);
+    
+    document.body.appendChild(popup);
 }
 
 function enableChat() {
@@ -1136,3 +1274,4 @@ function clearNotifications() {
     updateNotificationsPanel();
     showNotification('All notifications cleared', 'info', false);
 }
+[file content end]
