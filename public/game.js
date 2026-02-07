@@ -1,3 +1,5 @@
+[file name]: public/game.js
+[file content begin]
 // Game State
 let currentBoard = Array(9).fill('');
 let currentPlayer = 'X';
@@ -16,13 +18,9 @@ let userStats = {
 let notifications = [];
 const MAX_NOTIFICATIONS = 50;
 let heartbeatInterval = null;
-let isReconnecting = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
 
 console.log('Game.js loaded');
 
-// Initialize
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM ready');
     initSocket();
@@ -61,14 +59,6 @@ function updateThemeStyles(theme) {
                 el.classList.add('border', 'border-secondary');
             }
         });
-        
-        document.querySelectorAll('.alert').forEach(el => {
-            if (el.classList.contains('alert-secondary')) {
-                el.style.backgroundColor = '#e9ecef';
-                el.style.color = '#212529';
-                el.style.borderColor = '#dee2e6';
-            }
-        });
     } else {
         root.style.setProperty('--bs-body-color', '#f8f9fa');
         root.style.setProperty('--bs-body-bg', '#212529');
@@ -85,14 +75,6 @@ function updateThemeStyles(theme) {
             if (!el.classList.contains('stats-card') && el.classList.contains('bg-light')) {
                 el.classList.replace('bg-light', 'bg-dark');
                 el.classList.remove('border', 'border-secondary');
-            }
-        });
-        
-        document.querySelectorAll('.alert').forEach(el => {
-            if (el.classList.contains('alert-secondary')) {
-                el.style.backgroundColor = '#343a40';
-                el.style.color = '#f8f9fa';
-                el.style.borderColor = '#495057';
             }
         });
     }
@@ -238,7 +220,7 @@ function initSocket() {
     
     socket = io({
         reconnection: true,
-        reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+        reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000
@@ -249,9 +231,6 @@ function initSocket() {
         updateConnectionStatus(true);
         document.getElementById('connection-message').textContent = 'Connected! Enter your name.';
         showNotification('Connected to server', 'success', true);
-        
-        isReconnecting = false;
-        reconnectAttempts = 0;
         
         startHeartbeat();
         
@@ -271,30 +250,11 @@ function initSocket() {
         console.log('Reconnected to server. Attempt:', attemptNumber);
         updateConnectionStatus(true);
         showNotification('Reconnected to server', 'success', true);
-        isReconnecting = false;
         
         if (username) {
             console.log('Re-registering after reconnect:', username);
             socket.emit('register-user', username);
         }
-    });
-    
-    socket.on('reconnect_attempt', (attemptNumber) => {
-        console.log('Reconnection attempt:', attemptNumber);
-        reconnectAttempts = attemptNumber;
-        isReconnecting = true;
-        updateConnectionStatus(false);
-        document.getElementById('connection-message').textContent = `Reconnecting... (${attemptNumber}/${MAX_RECONNECT_ATTEMPTS})`;
-    });
-    
-    socket.on('reconnect_error', (error) => {
-        console.error('Reconnection error:', error);
-    });
-    
-    socket.on('reconnect_failed', () => {
-        console.error('Reconnection failed');
-        showNotification('Failed to reconnect to server. Please refresh the page.', 'danger', true);
-        document.getElementById('connection-message').textContent = 'Connection failed. Please refresh.';
     });
     
     socket.on('disconnect', (reason) => {
@@ -303,7 +263,7 @@ function initSocket() {
         
         if (reason === 'io server disconnect') {
             socket.connect();
-        } else if (!isReconnecting) {
+        } else {
             document.getElementById('connection-message').textContent = 'Disconnected. Reconnecting...';
             showNotification('Disconnected from server', 'warning', true);
         }
@@ -424,13 +384,11 @@ function initSocket() {
         console.log('Player left:', data);
         const { player, message, gameId } = data;
         
-        // Check if this notification is for our current game
         if (!currentGame || currentGame.id !== gameId) {
             console.log('Notification for different game, ignoring');
             return;
         }
         
-        // Only show notification if it's not about ourselves
         if (player !== username) {
             showNotification(message, 'warning', true);
             
@@ -439,14 +397,7 @@ function initSocket() {
                 gameActive = false;
                 updateGameInfo(currentGame);
                 updateTurnIndicator();
-                
                 disableChat();
-                
-                // If opponent left, we should reset to waiting state
-                if (currentGame.players.includes(username)) {
-                    // We're still in the game, waiting for new opponent
-                    showNotification('Waiting for new opponent...', 'info', true);
-                }
             }
         }
     });
@@ -455,15 +406,35 @@ function initSocket() {
         console.log('You left the game:', data);
         const { message, gameId, gameDeleted } = data;
         
-        // Check if this is for our current game
         if (currentGame && currentGame.id === gameId) {
             hideGameScreen();
             showNotification(message, 'info', true);
             
             if (gameDeleted) {
-                console.log('Game was deleted (no players left)');
                 showNotification('Game ended - all players left', 'info', true);
             }
+        }
+    });
+    
+    // NEW: Handle when opponent returns to lobby
+    socket.on('opponent-returned-to-lobby', (data) => {
+        console.log('Opponent returned to lobby:', data);
+        const { gameId, player } = data;
+        
+        if (currentGame && currentGame.id === gameId) {
+            showNotification(`${player} returned to lobby. You should also return to lobby.`, 'info', true);
+            
+            // Hide the game result and rematch buttons
+            document.getElementById('game-result').style.display = 'none';
+            hideRematchRequest();
+            
+            // Return to lobby after 2 seconds
+            setTimeout(() => {
+                if (currentGame && currentGame.id === gameId) {
+                    hideGameScreen();
+                    showNotification('Returned to lobby since opponent left', 'info', true);
+                }
+            }, 2000);
         }
     });
     
@@ -471,13 +442,26 @@ function initSocket() {
         const { player, gameId } = data;
         console.log('Rematch offered by:', player, 'for game:', gameId);
         
-        showNotification(`${player} wants a rematch! Click the rematch request below to respond.`, 'info', true);
+        // Check if we're still in the same game
+        if (!currentGame || currentGame.id !== gameId) {
+            console.log('Rematch offer for different game, ignoring');
+            socket.emit('reject-rematch', { gameId: gameId, player: username });
+            return;
+        }
         
+        showNotification(`${player} wants a rematch! Click the rematch request below to respond.`, 'info', true);
         showRematchRequest(player, gameId);
     });
     
     socket.on('rematch-started', (game) => {
         console.log('Rematch started:', game);
+        
+        // Make sure we're still in this game
+        if (!currentGame || currentGame.id !== game.id) {
+            console.log('Rematch started for different game, ignoring');
+            return;
+        }
+        
         currentGame = game;
         gameActive = true;
         
@@ -614,16 +598,10 @@ function setupEventListeners() {
             if (confirm('Are you sure you want to leave this game?')) {
                 console.log('Leaving game:', currentGame.id);
                 
-                // Clear the game state first
-                const gameId = currentGame.id;
-                
                 socket.emit('leave-game', {
-                    gameId: gameId,
+                    gameId: currentGame.id,
                     player: username
                 });
-                
-                // Don't hide immediately - wait for server response
-                // The server will send player-left-self which will trigger hideGameScreen
             }
         } else {
             showNotification('Cannot leave game - not connected to server', 'danger', true);
@@ -645,9 +623,23 @@ function setupEventListeners() {
         }
     });
     
+    // UPDATED: New Game button - now notifies opponent
     document.getElementById('new-game-btn').addEventListener('click', function() {
-        hideGameScreen();
-        showNotification('Returned to lobby', 'info', true);
+        if (currentGame && socket && socket.connected) {
+            console.log('Returning to lobby from game:', currentGame.id);
+            
+            // Notify server that we're returning to lobby
+            socket.emit('return-to-lobby', {
+                gameId: currentGame.id,
+                player: username
+            });
+            
+            // Hide game screen immediately
+            hideGameScreen();
+            showNotification('Returned to lobby', 'info', true);
+        } else {
+            showNotification('Cannot return to lobby - not connected to server', 'danger', true);
+        }
     });
     
     document.getElementById('send-chat-btn').addEventListener('click', sendChatMessage);
@@ -899,11 +891,10 @@ function updateGamesList(games) {
             </div>
         `;
     } else {
-        // Filter to show only waiting games that are joinable
         const joinableGames = games.filter(game => 
             game.status === 'waiting' && 
             game.playerCount < 2 &&
-            game.players.length > 0 // CRITICAL: Only show games with actual players
+            game.players.length > 0
         );
         
         if (joinableGames.length === 0) {
@@ -949,7 +940,6 @@ function updateGamesList(games) {
                         return;
                     }
                     
-                    // Check if game still exists and has space
                     if (game.playerCount >= 2) {
                         showNotification('Game is already full', 'warning', true);
                         return;
@@ -1340,14 +1330,9 @@ function clearNotifications() {
 }
 
 document.addEventListener('visibilitychange', function() {
-    if (document.hidden) {
-        console.log('Page hidden');
-    } else {
-        console.log('Page visible again');
-        if (socket && !socket.connected) {
-            console.log('Attempting to reconnect...');
-            socket.connect();
-        }
+    if (!document.hidden && socket && !socket.connected) {
+        console.log('Attempting to reconnect...');
+        socket.connect();
     }
 });
 
@@ -1356,3 +1341,4 @@ window.addEventListener('beforeunload', function() {
         socket.disconnect();
     }
 });
+[file content end]
