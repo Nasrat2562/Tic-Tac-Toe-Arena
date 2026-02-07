@@ -1,4 +1,5 @@
-
+[file name]: index.js
+[file content begin]
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -254,6 +255,10 @@ io.on('connection', (socket) => {
             
             if (game.players.length === 0) {
                 delete games[gameId];
+                // Only notify the leaving player
+                socket.emit('player-left-self', { 
+                    message: 'You left the game'
+                });
             } else {
                 game.status = 'waiting';
                 game.board = Array(9).fill('');
@@ -261,13 +266,13 @@ io.on('connection', (socket) => {
                 game.winner = null;
                 game.rematchRequests.clear();
                 
-                // Notify remaining players with proper message
-                io.to(gameId).emit('player-left', { 
+                // Notify remaining players
+                socket.to(gameId).emit('player-left', { 
                     player: socket.username,
                     message: `${socket.username} left the game`
                 });
                 
-                // Notify the leaving player with a different message
+                // Notify the leaving player
                 socket.emit('player-left-self', { 
                     message: 'You left the game'
                 });
@@ -396,12 +401,11 @@ io.on('connection', (socket) => {
             timestamp: new Date().toISOString()
         });
         
-        // Then broadcast to other players in the game with type for popup
+        // Then broadcast to other players in the game
         socket.to(gameId).emit('chat-message', {
             sender: sender,
             message: message,
-            timestamp: new Date().toISOString(),
-            type: 'popup' // Add type to distinguish regular chat from popup
+            timestamp: new Date().toISOString()
         });
         
         // Also send a special popup notification for chat messages
@@ -443,6 +447,7 @@ io.on('connection', (socket) => {
         
         if (socket.currentGameId && games[socket.currentGameId]) {
             const game = games[socket.currentGameId];
+            const leavingPlayer = socket.username;
             game.players = game.players.filter(p => p !== socket.username);
             game.playerCount = game.players.length;
             
@@ -455,10 +460,10 @@ io.on('connection', (socket) => {
                 game.winner = null;
                 game.rematchRequests.clear();
                 
-                // Notify remaining players
+                // Notify remaining players - use socket.to to exclude the disconnecting socket
                 io.to(socket.currentGameId).emit('player-left', { 
-                    player: socket.username,
-                    message: `${socket.username} disconnected from the game`
+                    player: leavingPlayer,
+                    message: `${leavingPlayer} disconnected`
                 });
             }
             
@@ -579,5 +584,4 @@ server.listen(PORT, () => {
     console.log(`🌐 http://localhost:${PORT}`);
     console.log(`📁 Serving static files from: ${publicPath}`);
 });
-
-
+[file content end]
