@@ -16,21 +16,7 @@ const io = socketIo(server, {
 
 const publicPath = path.resolve(__dirname, '../public');
 
-app.use(express.static(publicPath, {
-    setHeaders: (res, filePath) => {
-        const ext = path.extname(filePath);
-        if (ext === '.js') {
-            res.setHeader('Content-Type', 'application/javascript');
-            res.setHeader('Cache-Control', 'public, max-age=3600');
-        } else if (ext === '.css') {
-            res.setHeader('Content-Type', 'text/css');
-            res.setHeader('Cache-Control', 'public, max-age=3600');
-        } else if (ext === '.html') {
-            res.setHeader('Content-Type', 'text/html');
-            res.setHeader('Cache-Control', 'no-cache');
-        }
-    }
-}));
+app.use(express.static(publicPath));
 
 const games = {};
 const users = {};
@@ -243,7 +229,7 @@ io.on('connection', (socket) => {
             if (game.players.length === 0) {
                 delete games[gameId];
                 
-                socket.emit('player-left-self', { 
+                socket.emit('player-left-self', {
                     message: 'You left the game',
                     gameId: gameId,
                     gameDeleted: true
@@ -255,13 +241,13 @@ io.on('connection', (socket) => {
                 game.winner = null;
                 game.rematchRequests.clear();
                 
-                socket.to(gameId).emit('player-left', { 
+                socket.to(gameId).emit('player-left', {
                     player: leavingUsername,
                     message: `${leavingUsername} left the game`,
                     gameId: gameId
                 });
                 
-                socket.emit('player-left-self', { 
+                socket.emit('player-left-self', {
                     message: 'You left the game',
                     gameId: gameId,
                     gameDeleted: false
@@ -274,78 +260,63 @@ io.on('connection', (socket) => {
         }
     });
     
-    // NEW: Force opponent to return to lobby when player chooses "New Game"
     socket.on('return-to-lobby', ({ gameId, player }) => {
-    const game = games[gameId];
-    if (!game || !socket.username) {
-        socket.emit('error', 'Game not found');
-        return;
-    }
-    
-    if (!game.players.includes(socket.username)) {
-        socket.emit('error', 'You are not in this game');
-        return;
-    }
-    
-    console.log(`${socket.username} returning to lobby from game ${gameId}`);
-    console.log(`Current players in game: ${game.players}`);
-    
-    // Remove player from the game
-    game.players = game.players.filter(p => p !== socket.username);
-    game.playerCount = game.players.length;
-    
-    console.log(`After removal - Players left: ${game.players}`);
-    
-    // Remove player from socket room
-    socket.leave(gameId);
-    socket.currentGameId = null;
-    
-    // Check if this was the last player
-    if (game.players.length === 0) {
-        // COMPLETELY DELETE THE GAME - This is the key fix!
-        console.log(`Game ${gameId} (${game.name}) has NO players left. DELETING game.`);
-        delete games[gameId];
-        
-        // Notify player
-        socket.emit('player-left-self', {
-            message: 'You returned to lobby',
-            gameId: gameId,
-            gameDeleted: true
-        });
-    } else {
-        // There are still players in the game
-        game.status = 'waiting';
-        game.board = Array(9).fill('');
-        game.currentPlayer = 'X';
-        game.winner = null;
-        game.rematchRequests.clear();
-        
-        // Notify remaining players
-        const opponent = game.players.find(p => p !== socket.username);
-        if (opponent) {
-            const opponentSocket = getSocketByUsername(opponent);
-            if (opponentSocket) {
-                console.log(`Notifying ${opponent} to also return to lobby`);
-                opponentSocket.emit('opponent-returned-to-lobby', {
-                    gameId: gameId,
-                    player: socket.username,
-                    gameStillExists: true
-                });
-            }
+        const game = games[gameId];
+        if (!game || !socket.username) {
+            socket.emit('error', 'Game not found');
+            return;
         }
         
-        // Notify the leaving player
-        socket.emit('player-left-self', {
-            message: 'You returned to lobby',
-            gameId: gameId,
-            gameDeleted: false
-        });
-    }
-    
-    // Always broadcast updated games list
-    broadcastGames();
-    console.log(`Games list updated after ${socket.username} returned to lobby`);
-});
+        if (!game.players.includes(socket.username)) {
+            socket.emit('error', 'You are not in this game');
+            return;
+        }
+        
+        console.log(`${socket.username} returning to lobby from game ${gameId}`);
+        
+        game.players = game.players.filter(p => p !== socket.username);
+        game.playerCount = game.players.length;
+        
+        socket.leave(gameId);
+        socket.currentGameId = null;
+        
+        if (game.players.length === 0) {
+            console.log(`Game ${gameId} has NO players left. DELETING game.`);
+            delete games[gameId];
+            
+            socket.emit('player-left-self', {
+                message: 'You returned to lobby',
+                gameId: gameId,
+                gameDeleted: true
+            });
+        } else {
+            game.status = 'waiting';
+            game.board = Array(9).fill('');
+            game.currentPlayer = 'X';
+            game.winner = null;
+            game.rematchRequests.clear();
+            
+            const opponent = game.players.find(p => p !== socket.username);
+            if (opponent) {
+                const opponentSocket = getSocketByUsername(opponent);
+                if (opponentSocket) {
+                    console.log(`Notifying ${opponent} to also return to lobby`);
+                    opponentSocket.emit('opponent-returned-to-lobby', {
+                        gameId: gameId,
+                        player: socket.username
+                    });
+                }
+            }
+            
+            socket.emit('player-left-self', {
+                message: 'You returned to lobby',
+                gameId: gameId,
+                gameDeleted: false
+            });
+        }
+        
+        broadcastGames();
+    });
     
     socket.on('request-rematch', ({ gameId, player }) => {
         const game = games[gameId];
@@ -377,11 +348,6 @@ io.on('connection', (socket) => {
                     player: socket.username,
                     gameId: gameId
                 });
-            } else {
-                console.log(`Opponent ${opponent} not connected, cannot send rematch request`);
-                socket.emit('error', 'Opponent is not connected');
-                game.rematchRequests.delete(socket.username);
-                return;
             }
         }
         
@@ -403,7 +369,6 @@ io.on('connection', (socket) => {
         
         console.log(`${socket.username} accepted rematch for game ${gameId}`);
         
-        // Check if opponent is still in the game (hasn't returned to lobby)
         const opponent = game.players.find(p => p !== socket.username);
         if (!opponent) {
             socket.emit('error', 'Opponent has left the game');
@@ -490,10 +455,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    socket.on('heartbeat', () => {
-        socket.emit('heartbeat-response', { timestamp: Date.now() });
-    });
-    
     socket.on('disconnect', (reason) => {
         console.log(`${socket.username || 'Anonymous'} disconnected. Reason: ${reason}`);
         
@@ -516,7 +477,7 @@ io.on('connection', (socket) => {
                     game.winner = null;
                     game.rematchRequests.clear();
                     
-                    io.to(socket.currentGameId).emit('player-left', { 
+                    io.to(socket.currentGameId).emit('player-left', {
                         player: leavingPlayer,
                         message: `${leavingPlayer} disconnected`,
                         gameId: socket.currentGameId
@@ -531,45 +492,26 @@ io.on('connection', (socket) => {
     });
     
     function broadcastGames(targetSocket = null) {
-    // CRITICAL: Only show games that actually have players AND are waiting
-    const availableGames = Object.values(games)
-        .filter(game => {
-            // Must have at least one player
-            const hasPlayers = game.players.length > 0;
-            // Must be waiting for players
-            const isWaiting = game.status === 'waiting';
-            // Must have room for more players
-            const hasRoom = game.playerCount < 2;
-            
-            const shouldShow = hasPlayers && isWaiting && hasRoom;
-            
-            if (!shouldShow && hasPlayers) {
-                console.log(`Game ${game.id} filtered out - Status: ${game.status}, Players: ${game.players}, PlayerCount: ${game.playerCount}`);
-            }
-            
-            return shouldShow;
-        })
-        .map(game => ({
-            id: game.id,
-            name: game.name,
-            host: game.host,
-            players: game.players,
-            playerCount: game.playerCount,
-            status: game.status,
-            winner: game.winner
-        }));
+        const availableGames = Object.values(games)
+            .filter(game => game.players.length > 0 && game.status === 'waiting' && game.playerCount < 2)
+            .map(game => ({
+                id: game.id,
+                name: game.name,
+                host: game.host,
+                players: game.players,
+                playerCount: game.playerCount,
+                status: game.status,
+                winner: game.winner
+            }));
 
-    console.log(`📋 Broadcasting ${availableGames.length} available games:`);
-    availableGames.forEach(game => {
-        console.log(`  - ${game.name} (${game.id}): ${game.playerCount}/2 players, Status: ${game.status}`);
-    });
-    
-    if (targetSocket) {
-        targetSocket.emit('games-list', availableGames);
-    } else {
-        io.emit('games-list', availableGames);
+        console.log(`📋 Broadcasting ${availableGames.length} available games`);
+        
+        if (targetSocket) {
+            targetSocket.emit('games-list', availableGames);
+        } else {
+            io.emit('games-list', availableGames);
+        }
     }
-}
     
     function checkWin(board) {
         const winPatterns = [
@@ -608,13 +550,10 @@ io.on('connection', (socket) => {
         const game = games[gameId];
         if (!game) return;
         
-        // Check if both players are still connected
         for (const player of game.players) {
             const playerSocket = getSocketByUsername(player);
             if (!playerSocket) {
                 console.log(`Player ${player} not connected, cannot start rematch`);
-                
-                // Notify the other player
                 const otherPlayer = game.players.find(p => p !== player);
                 if (otherPlayer) {
                     const otherSocket = getSocketByUsername(otherPlayer);
@@ -645,28 +584,17 @@ io.on('connection', (socket) => {
 });
 
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
+    res.json({
+        status: 'OK',
         timestamp: new Date().toISOString(),
         activeGames: Object.keys(games).length,
         activeUsers: Object.keys(users).length,
-        totalPlayers: Object.keys(userStatistics).length,
-        connections: io.engine.clientsCount
+        totalPlayers: Object.keys(userStatistics).length
     });
-});
-
-app.get('/api/stats/:username', (req, res) => {
-    const username = req.params.username;
-    if (userStatistics[username]) {
-        res.json(userStatistics[username]);
-    } else {
-        res.status(404).json({ error: 'User not found' });
-    }
 });
 
 app.get('*', (req, res) => {
     const filePath = path.join(publicPath, 'index.html');
-    res.setHeader('Content-Type', 'text/html');
     res.sendFile(filePath);
 });
 
@@ -674,6 +602,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌐 http://localhost:${PORT}`);
-    console.log(`📁 Serving static files from: ${publicPath}`);
 });
-
