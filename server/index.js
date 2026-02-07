@@ -1,5 +1,3 @@
-[file name]: index.js
-[file content begin]
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -584,4 +582,5 @@ server.listen(PORT, () => {
     console.log(`🌐 http://localhost:${PORT}`);
     console.log(`📁 Serving static files from: ${publicPath}`);
 });
-[file content end]
+
+
