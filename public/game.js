@@ -81,17 +81,17 @@ function updateNotificationsPanel() {
     notifications.forEach(notification => {
         const timeAgo = getTimeAgo(notification.timestamp);
         const iconClass = getNotificationIcon(notification.type);
-        const readClass = notification.read ? '' : 'fw-bold';
+        const readClass = notification.read ? '' : 'unread';
         
         notificationsHTML += `
-            <div class="notification-item mb-3 p-2 border-bottom ${readClass}">
+            <div class="notification-item mb-2 p-3 rounded ${readClass}" data-id="${notification.id}">
                 <div class="d-flex align-items-start">
                     <i class="${iconClass} me-2 mt-1 text-${notification.type}"></i>
                     <div class="flex-grow-1">
-                        <div class="small">${notification.message}</div>
+                        <div class="small mb-1">${notification.message}</div>
                         <div class="text-muted extra-small">${timeAgo}</div>
                     </div>
-                    <button class="btn btn-sm btn-outline-danger delete-notification" data-id="${notification.id}">
+                    <button class="btn btn-sm btn-outline-danger delete-notification-btn ms-2" data-id="${notification.id}">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
@@ -102,8 +102,9 @@ function updateNotificationsPanel() {
     notificationsList.innerHTML = notificationsHTML;
     
     // Add event listeners for delete buttons
-    document.querySelectorAll('.delete-notification').forEach(button => {
-        button.addEventListener('click', function() {
+    document.querySelectorAll('.delete-notification-btn').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.stopPropagation(); // Prevent dropdown from closing
             const notificationId = parseInt(this.getAttribute('data-id'));
             deleteNotification(notificationId);
         });
@@ -115,6 +116,7 @@ function deleteNotification(id) {
     saveNotifications();
     updateNotificationsPanel();
     updateNotificationsBadge();
+    showNotification('Notification removed', 'info', false);
 }
 
 function markAllNotificationsAsRead() {
@@ -205,7 +207,7 @@ function initSocket() {
     });
     
     socket.on('games-list', (games) => {
-        console.log('Games list:', games);
+        console.log('Games list received:', games);
         updateGamesList(games);
     });
     
@@ -314,8 +316,13 @@ function initSocket() {
     
     socket.on('rematch-offered', (data) => {
         const { player, gameId } = data;
+        console.log('Rematch offered by:', player, 'for game:', gameId);
+        
+        // Store rematch notification
+        showNotification(`${player} wants a rematch! Click the rematch request below to respond.`, 'info', true);
+        
+        // Show rematch request panel
         showRematchRequest(player, gameId);
-        showNotification(`${player} wants a rematch!`, 'info', true);
     });
     
     socket.on('rematch-started', (game) => {
@@ -349,6 +356,7 @@ function initSocket() {
     });
     
     socket.on('rematch-rejected', (player) => {
+        console.log('Rematch rejected by:', player);
         showNotification(`${player} rejected the rematch request`, 'warning', true);
         hideRematchRequest();
     });
@@ -676,59 +684,60 @@ function updateGamesList(games) {
             </div>
         `;
     } else {
-        games.forEach(game => {
-            const gameItem = document.createElement('div');
-            gameItem.className = 'game-item p-3 mb-2 rounded';
-            gameItem.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-bold">${game.name}</div>
-                        <small class="text-muted">
-                            <i class="bi bi-person-fill"></i> ${game.host} | 
-                            <i class="bi bi-people-fill"></i> ${game.playerCount}/2 |
-                            <span class="badge ${game.status === 'waiting' ? 'bg-warning' : 
-                                        game.status === 'playing' ? 'bg-success' : 
-                                        'bg-secondary'}">
-                                ${game.status === 'waiting' ? '⏳ Waiting' : 
-                                 game.status === 'playing' ? '🎮 Playing' : 
-                                 '🏁 Finished'}
-                            </span>
-                        </small>
-                    </div>
-                    <button class="btn btn-sm btn-primary join-game-btn" 
-                            ${game.playerCount >= 2 || game.status === 'playing' || game.status === 'finished' ? 'disabled' : ''}>
-                        <i class="bi bi-joystick"></i> Join
-                    </button>
+        // Filter to show only waiting games that are joinable
+        const joinableGames = games.filter(game => 
+            game.status === 'waiting' && 
+            game.playerCount < 2
+        );
+        
+        if (joinableGames.length === 0) {
+            gamesList.innerHTML = `
+                <div class="text-center text-muted p-4">
+                    <i class="bi bi-hourglass-split display-6 mb-2"></i>
+                    <p class="mb-0">No games available to join</p>
+                    <small>Create your own game!</small>
                 </div>
             `;
-            gamesList.appendChild(gameItem);
-            
-            const joinBtn = gameItem.querySelector('.join-game-btn');
-            joinBtn.addEventListener('click', () => {
-                if (!username) {
-                    showNotification('Please enter your name first', 'warning', true);
-                    return;
-                }
+        } else {
+            joinableGames.forEach(game => {
+                const gameItem = document.createElement('div');
+                gameItem.className = 'game-item p-3 mb-2 rounded';
+                gameItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="fw-bold">${game.name}</div>
+                            <small class="text-muted">
+                                <i class="bi bi-person-fill"></i> ${game.host} | 
+                                <i class="bi bi-people-fill"></i> ${game.playerCount}/2 |
+                                <span class="badge bg-warning">
+                                    ⏳ Waiting for player
+                                </span>
+                            </small>
+                        </div>
+                        <button class="btn btn-sm btn-primary join-game-btn">
+                            <i class="bi bi-joystick"></i> Join
+                        </button>
+                    </div>
+                `;
+                gamesList.appendChild(gameItem);
                 
-                if (game.playerCount >= 2) {
-                    showNotification('Game is full!', 'warning', true);
-                    return;
-                }
-                
-                if (game.status === 'playing' || game.status === 'finished') {
-                    showNotification('Game is already in progress', 'warning', true);
-                    return;
-                }
-                
-                console.log('Joining game:', game.id);
-                socket.emit('join-game', {
-                    gameId: game.id,
-                    player: username
+                const joinBtn = gameItem.querySelector('.join-game-btn');
+                joinBtn.addEventListener('click', () => {
+                    if (!username) {
+                        showNotification('Please enter your name first', 'warning', true);
+                        return;
+                    }
+                    
+                    console.log('Joining game:', game.id);
+                    socket.emit('join-game', {
+                        gameId: game.id,
+                        player: username
+                    });
+                    
+                    showNotification(`Joining "${game.name}"...`, 'info', true);
                 });
-                
-                showNotification(`Joining "${game.name}"...`, 'info', true);
             });
-        });
+        }
     }
     
     if (gamesCount) {
@@ -737,29 +746,51 @@ function updateGamesList(games) {
 }
 
 function showGameScreen(game) {
+    console.log('Showing game screen for:', game.name);
+    
+    // Hide lobby sections
     document.getElementById('waiting-screen').style.display = 'none';
-    document.getElementById('game-board-container').style.display = 'block';
-    document.getElementById('chat-section').style.display = 'block';
-    document.getElementById('current-game-info').style.display = 'block';
     document.getElementById('games-list-section').style.display = 'none';
     document.getElementById('create-game-section').style.display = 'none';
     
+    // Show game sections
+    document.getElementById('game-board-container').style.display = 'block';
+    document.getElementById('current-game-info').style.display = 'block';
+    
+    // Only show chat if game is active
+    if (gameActive) {
+        document.getElementById('chat-section').style.display = 'block';
+    } else {
+        document.getElementById('chat-section').style.display = 'none';
+    }
+    
+    // Update game display
     document.getElementById('game-name-display').textContent = game.name;
+    document.getElementById('game-title').textContent = game.name;
     
     // Update game info
     updateGameInfo(game);
+    
+    // Force UI update
+    updateGameState();
 }
 
 function hideGameScreen() {
+    console.log('Hiding game screen');
+    
     document.getElementById('waiting-screen').style.display = 'block';
     document.getElementById('waiting-screen').innerHTML = `
         <i class="bi bi-joystick display-1 text-muted mb-3"></i>
         <h4 class="mb-3">Welcome back, ${username}!</h4>
         <p class="text-muted">Create a game or join an existing one</p>
     `;
+    
+    // Hide game sections
     document.getElementById('game-board-container').style.display = 'none';
     document.getElementById('chat-section').style.display = 'none';
     document.getElementById('current-game-info').style.display = 'none';
+    
+    // Show lobby sections
     document.getElementById('games-list-section').style.display = 'block';
     document.getElementById('create-game-section').style.display = 'block';
     
@@ -781,10 +812,15 @@ function hideGameScreen() {
     isMyTurn = false;
     currentGame = null;
     mySymbol = '';
+    
+    // Update display
     updateBoardDisplay();
+    updateTurnIndicator();
     
     // Get updated games list
-    socket.emit('get-games');
+    if (socket) {
+        socket.emit('get-games');
+    }
 }
 
 function updateGameInfo(game) {
@@ -831,9 +867,26 @@ function updateGameInfo(game) {
 }
 
 function updateGameState() {
+    console.log('Updating game state. Game active:', gameActive);
+    
     updateBoardDisplay();
     updateTurnIndicator();
-    updateGameInfo(currentGame);
+    
+    if (currentGame) {
+        updateGameInfo(currentGame);
+    }
+    
+    // Show/hide chat based on game state
+    const chatSection = document.getElementById('chat-section');
+    if (chatSection) {
+        if (gameActive && currentGame) {
+            chatSection.style.display = 'block';
+            enableChat();
+        } else {
+            chatSection.style.display = 'none';
+            disableChat();
+        }
+    }
     
     // Hide result if game is active
     if (gameActive) {
@@ -973,6 +1026,7 @@ function showRematchRequest(player, gameId) {
     
     // Add event listeners
     document.getElementById('accept-rematch').addEventListener('click', function() {
+        console.log('Accepting rematch for game:', gameId);
         socket.emit('accept-rematch', {
             gameId: gameId,
             player: username
@@ -981,6 +1035,7 @@ function showRematchRequest(player, gameId) {
     });
     
     document.getElementById('reject-rematch').addEventListener('click', function() {
+        console.log('Rejecting rematch for game:', gameId);
         socket.emit('reject-rematch', {
             gameId: gameId,
             player: username
@@ -1043,41 +1098,4 @@ function updateStatsDisplay() {
             </div>
             <div class="col-6">
                 <div class="p-3 bg-dark rounded stats-card">
-                    <div class="h2 mb-1 text-info">${winRate}%</div>
-                    <small>Win Rate</small>
-                </div>
-            </div>
-        `;
-    }
-}
-
-function loadNotifications() {
-    const savedNotifications = localStorage.getItem(`tic-tac-toe-notifications-${username}`);
-    if (savedNotifications) {
-        notifications = JSON.parse(savedNotifications);
-        updateNotificationsBadge();
-    }
-}
-
-function saveNotifications() {
-    if (username) {
-        localStorage.setItem(`tic-tac-toe-notifications-${username}`, JSON.stringify(notifications));
-    }
-}
-
-function updateNotificationsBadge() {
-    const unreadCount = notifications.filter(n => !n.read).length;
-    const badge = document.getElementById('notifications-badge');
-    if (badge) {
-        badge.textContent = unreadCount;
-        badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-    }
-}
-
-function clearNotifications() {
-    notifications = [];
-    saveNotifications();
-    updateNotificationsBadge();
-    updateNotificationsPanel();
-    showNotification('Notifications cleared', 'info', true);
-}
+                    <div class="h2
