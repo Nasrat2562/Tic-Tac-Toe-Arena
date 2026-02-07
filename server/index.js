@@ -2,13 +2,31 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// Serve static files
-app.use(express.static(path.join(__dirname, '../public')));
+// Get the absolute path to the public directory
+const publicPath = path.resolve(__dirname, '../public');
+
+// Serve static files from the public directory
+app.use(express.static(publicPath, {
+    setHeaders: (res, filePath) => {
+        const ext = path.extname(filePath);
+        if (ext === '.js') {
+            res.setHeader('Content-Type', 'application/javascript');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+        } else if (ext === '.css') {
+            res.setHeader('Content-Type', 'text/css');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+        } else if (ext === '.html') {
+            res.setHeader('Content-Type', 'text/html');
+            res.setHeader('Cache-Control', 'no-cache');
+        }
+    }
+}));
 
 // Game management
 const games = {};
@@ -514,13 +532,16 @@ app.get('/api/stats/:username', (req, res) => {
     }
 });
 
-// Serve index.html for all routes
+// Serve index.html for all routes - ensure proper MIME type
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
+    const filePath = path.join(publicPath, 'index.html');
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(filePath);
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌐 http://localhost:${PORT}`);
+    console.log(`📁 Serving static files from: ${publicPath}`);
 });
