@@ -6,7 +6,14 @@ const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIo(server, {
+    pingTimeout: 60000, // 60 seconds
+    pingInterval: 25000, // 25 seconds
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 // Get the absolute path to the public directory
 const publicPath = path.resolve(__dirname, '../public');
@@ -35,6 +42,13 @@ const userStatistics = {}; // Single source of truth for stats
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
+    
+    // Set up connection health check
+    socket.conn.on('packet', (packet) => {
+        if (packet.type === 'pong') {
+            console.log(`Pong received from ${socket.username || socket.id}`);
+        }
+    });
     
     // Register user
     socket.on('register-user', (username) => {
@@ -248,14 +262,16 @@ io.on('connection', (socket) => {
     socket.on('leave-game', ({ gameId, player }) => {
         if (games[gameId] && socket.username) {
             const game = games[gameId];
-            game.players = game.players.filter(p => p !== socket.username);
+            const leavingUsername = socket.username;
+            game.players = game.players.filter(p => p !== leavingUsername);
             game.playerCount = game.players.length;
             
             if (game.players.length === 0) {
                 delete games[gameId];
                 // Only notify the leaving player
                 socket.emit('player-left-self', { 
-                    message: 'You left the game'
+                    message: 'You left the game',
+                    gameId: gameId
                 });
             } else {
                 game.status = 'waiting';
@@ -264,21 +280,25 @@ io.on('connection', (socket) => {
                 game.winner = null;
                 game.rematchRequests.clear();
                 
-                // Notify remaining players
+                // Notify remaining players - use socket.to to exclude the leaving socket
                 socket.to(gameId).emit('player-left', { 
-                    player: socket.username,
-                    message: `${socket.username} left the game`
+                    player: leavingUsername,
+                    message: `${leavingUsername} left the game`,
+                    gameId: gameId
                 });
                 
                 // Notify the leaving player
                 socket.emit('player-left-self', { 
-                    message: 'You left the game'
+                    message: 'You left the game',
+                    gameId: gameId
                 });
             }
             
             socket.leave(gameId);
             socket.currentGameId = null;
             broadcastGames();
+            
+            console.log(`${leavingUsername} left game ${gameId}`);
         }
     });
     
@@ -380,7 +400,7 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Chat message - FIXED: Prevent duplicate messages
+    // Chat message
     socket.on('chat-message', (data) => {
         const { gameId, sender, message } = data;
         const game = games[gameId];
@@ -439,33 +459,44 @@ io.on('connection', (socket) => {
         }
     });
     
+    // Heartbeat
+    socket.on('heartbeat', () => {
+        socket.emit('heartbeat-response', { timestamp: Date.now() });
+    });
+    
     // Disconnect
-    socket.on('disconnect', () => {
-        console.log(`${socket.username || 'Anonymous'} disconnected`);
+    socket.on('disconnect', (reason) => {
+        console.log(`${socket.username || 'Anonymous'} disconnected. Reason: ${reason}`);
         
         if (socket.currentGameId && games[socket.currentGameId]) {
             const game = games[socket.currentGameId];
             const leavingPlayer = socket.username;
-            game.players = game.players.filter(p => p !== socket.username);
-            game.playerCount = game.players.length;
             
-            if (game.players.length === 0) {
-                delete games[socket.currentGameId];
-            } else {
-                game.status = 'waiting';
-                game.board = Array(9).fill('');
-                game.currentPlayer = 'X';
-                game.winner = null;
-                game.rematchRequests.clear();
+            if (leavingPlayer && game.players.includes(leavingPlayer)) {
+                game.players = game.players.filter(p => p !== leavingPlayer);
+                game.playerCount = game.players.length;
                 
-                // Notify remaining players - use socket.to to exclude the disconnecting socket
-                io.to(socket.currentGameId).emit('player-left', { 
-                    player: leavingPlayer,
-                    message: `${leavingPlayer} disconnected`
-                });
+                if (game.players.length === 0) {
+                    delete games[socket.currentGameId];
+                    console.log(`Game ${socket.currentGameId} deleted (no players left)`);
+                } else {
+                    game.status = 'waiting';
+                    game.board = Array(9).fill('');
+                    game.currentPlayer = 'X';
+                    game.winner = null;
+                    game.rematchRequests.clear();
+                    
+                    // Notify remaining players
+                    console.log(`Notifying remaining players in game ${socket.currentGameId} that ${leavingPlayer} disconnected`);
+                    io.to(socket.currentGameId).emit('player-left', { 
+                        player: leavingPlayer,
+                        message: `${leavingPlayer} disconnected`,
+                        gameId: socket.currentGameId
+                    });
+                }
+                
+                broadcastGames();
             }
-            
-            broadcastGames();
         }
         
         delete users[socket.id];
@@ -517,7 +548,10 @@ io.on('connection', (socket) => {
     function getSocketByUsername(username) {
         for (const [socketId, user] of Object.entries(users)) {
             if (user === username) {
-                return io.sockets.sockets.get(socketId);
+                const socket = io.sockets.sockets.get(socketId);
+                if (socket && socket.connected) {
+                    return socket;
+                }
             }
         }
         return null;
@@ -555,7 +589,8 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         activeGames: Object.keys(games).length,
         activeUsers: Object.keys(users).length,
-        totalPlayers: Object.keys(userStatistics).length
+        totalPlayers: Object.keys(userStatistics).length,
+        connections: io.engine.clientsCount
     });
 });
 
@@ -582,5 +617,3 @@ server.listen(PORT, () => {
     console.log(`🌐 http://localhost:${PORT}`);
     console.log(`📁 Serving static files from: ${publicPath}`);
 });
-
-
