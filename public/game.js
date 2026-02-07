@@ -1,5 +1,3 @@
-[file name]: public/game.js
-[file content begin]
 // Game State
 let currentBoard = Array(9).fill('');
 let currentPlayer = 'X';
@@ -1341,4 +1339,5 @@ window.addEventListener('beforeunload', function() {
         socket.disconnect();
     }
 });
-[file content end]
+
+
