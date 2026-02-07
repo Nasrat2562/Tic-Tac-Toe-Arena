@@ -15,6 +15,10 @@ let userStats = {
 };
 let notifications = [];
 const MAX_NOTIFICATIONS = 50;
+let heartbeatInterval = null;
+let isReconnecting = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 console.log('Game.js loaded');
 
@@ -229,20 +233,100 @@ function getNotificationIcon(type) {
 function initSocket() {
     console.log('Initializing socket...');
     
-    socket = io();
+    // Clear any existing socket
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+    
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+    
+    socket = io({
+        reconnection: true,
+        reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000
+    });
     
     socket.on('connect', () => {
         console.log('Connected to server');
         updateConnectionStatus(true);
         document.getElementById('connection-message').textContent = 'Connected! Enter your name.';
         showNotification('Connected to server', 'success', true);
+        
+        // Reset reconnection state
+        isReconnecting = false;
+        reconnectAttempts = 0;
+        
+        // Start heartbeat
+        startHeartbeat();
+        
+        // If we have a username, re-register
+        if (username) {
+            console.log('Re-registering user:', username);
+            socket.emit('register-user', username);
+        }
     });
     
-    socket.on('disconnect', () => {
-        console.log('Disconnected');
+    socket.on('connect_error', (error) => {
+        console.error('Connection error:', error);
         updateConnectionStatus(false);
-        document.getElementById('connection-message').textContent = 'Disconnected';
-        showNotification('Disconnected from server', 'danger', true);
+        showNotification('Connection error: ' + error.message, 'danger', true);
+    });
+    
+    socket.on('reconnect', (attemptNumber) => {
+        console.log('Reconnected to server. Attempt:', attemptNumber);
+        updateConnectionStatus(true);
+        showNotification('Reconnected to server', 'success', true);
+        isReconnecting = false;
+        
+        // Re-register if we have username
+        if (username) {
+            console.log('Re-registering after reconnect:', username);
+            socket.emit('register-user', username);
+        }
+    });
+    
+    socket.on('reconnect_attempt', (attemptNumber) => {
+        console.log('Reconnection attempt:', attemptNumber);
+        reconnectAttempts = attemptNumber;
+        isReconnecting = true;
+        updateConnectionStatus(false);
+        document.getElementById('connection-message').textContent = `Reconnecting... (${attemptNumber}/${MAX_RECONNECT_ATTEMPTS})`;
+    });
+    
+    socket.on('reconnect_error', (error) => {
+        console.error('Reconnection error:', error);
+    });
+    
+    socket.on('reconnect_failed', () => {
+        console.error('Reconnection failed');
+        showNotification('Failed to reconnect to server. Please refresh the page.', 'danger', true);
+        document.getElementById('connection-message').textContent = 'Connection failed. Please refresh.';
+    });
+    
+    socket.on('disconnect', (reason) => {
+        console.log('Disconnected. Reason:', reason);
+        updateConnectionStatus(false);
+        
+        if (reason === 'io server disconnect') {
+            // Server initiated disconnect, need to manually reconnect
+            socket.connect();
+        } else if (!isReconnecting) {
+            document.getElementById('connection-message').textContent = 'Disconnected. Reconnecting...';
+            showNotification('Disconnected from server', 'warning', true);
+        }
+        
+        // Clear heartbeat
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
     });
     
     socket.on('user-registered', (data) => {
@@ -369,32 +453,43 @@ function initSocket() {
     
     socket.on('player-left', (data) => {
         console.log('Player left:', data);
-        const { player, message } = data;
+        const { player, message, gameId } = data;
+        
+        // Only process if it's for our current game
+        if (!currentGame || currentGame.id !== gameId) {
+            return;
+        }
         
         // Only show notification if it's not about ourselves
         if (player !== username) {
             showNotification(message, 'warning', true);
-        }
-        
-        if (currentGame) {
-            currentGame.status = 'waiting';
-            gameActive = false;
-            updateGameInfo(currentGame);
-            updateTurnIndicator();
+            
+            if (currentGame) {
+                currentGame.status = 'waiting';
+                gameActive = false;
+                updateGameInfo(currentGame);
+                updateTurnIndicator();
+                
+                // If opponent left, disable chat
+                disableChat();
+            }
         }
     });
     
     socket.on('player-left-self', (data) => {
         console.log('You left the game:', data);
-        // Only show notification and hide game screen
-        // Don't show notification if we're already showing "You left the game"
-        // from the leave button click
+        const { message, gameId } = data;
         
-        // Hide game screen immediately
+        // Only process if it's for our current game
+        if (!currentGame || (gameId && currentGame.id !== gameId)) {
+            return;
+        }
+        
+        // Hide game screen if we haven't already
         hideGameScreen();
         
         // Show notification
-        showNotification(data.message, 'info', true);
+        showNotification(message, 'info', true);
     });
     
     socket.on('rematch-offered', (data) => {
@@ -479,10 +574,28 @@ function initSocket() {
         localStorage.setItem(`tic-tac-toe-stats-${username}`, JSON.stringify(userStats));
     });
     
+    socket.on('heartbeat-response', (data) => {
+        console.log('Heartbeat response received:', data);
+    });
+    
     socket.on('error', (error) => {
         console.error('Socket error:', error);
         showNotification(error, 'danger', true);
     });
+}
+
+function startHeartbeat() {
+    // Clear existing interval
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+    
+    // Send heartbeat every 30 seconds
+    heartbeatInterval = setInterval(() => {
+        if (socket && socket.connected) {
+            socket.emit('heartbeat');
+        }
+    }, 30000);
 }
 
 function setupEventListeners() {
@@ -538,13 +651,11 @@ function setupEventListeners() {
         }
     });
     
-    // Leave game - UPDATED to prevent duplicate notifications
+    // Leave game - Fixed to work properly
     document.getElementById('leave-game').addEventListener('click', function() {
-        if (currentGame) {
+        if (currentGame && socket && socket.connected) {
             if (confirm('Are you sure you want to leave this game?')) {
                 console.log('Leaving game:', currentGame.id);
-                // Hide game screen immediately
-                hideGameScreen();
                 
                 // Send leave event to server
                 socket.emit('leave-game', {
@@ -553,14 +664,19 @@ function setupEventListeners() {
                 });
                 
                 // Don't show notification here - server will send player-left-self
-                // This prevents duplicate "You left the game" notifications
+                // Hide game screen after sending the event
+                setTimeout(() => {
+                    hideGameScreen();
+                }, 100);
             }
+        } else {
+            showNotification('Cannot leave game - not connected to server', 'danger', true);
         }
     });
     
     // Rematch
     document.getElementById('rematch-btn').addEventListener('click', function() {
-        if (currentGame && socket) {
+        if (currentGame && socket && socket.connected) {
             console.log('Requesting rematch for game:', currentGame.id);
             // Hide result display while waiting
             document.getElementById('game-result').style.display = 'none';
@@ -570,6 +686,8 @@ function setupEventListeners() {
                 player: username
             });
             showNotification('Rematch requested! Waiting for opponent...', 'info', true);
+        } else {
+            showNotification('Cannot request rematch - not connected to server', 'danger', true);
         }
     });
     
@@ -610,6 +728,11 @@ function sendChatMessage() {
     
     if (!currentGame || !username) {
         showNotification('You must be in a game to chat', 'warning', true);
+        return;
+    }
+    
+    if (!socket || !socket.connected) {
+        showNotification('Cannot send message - not connected to server', 'danger', true);
         return;
     }
     
@@ -657,7 +780,7 @@ function showChatPopup(sender, message) {
         min-width: 300px;
         max-width: 400px;
         animation: slideInUp 0.3s ease-out;
-        background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
         color: white;
         border-radius: 10px;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
@@ -776,13 +899,15 @@ function handleCellClick(index) {
         return;
     }
     
-    if (currentGame && socket) {
+    if (currentGame && socket && socket.connected) {
         console.log('Making move at index:', index);
         socket.emit('make-move', {
             gameId: currentGame.id,
             cellIndex: index,
             player: username
         });
+    } else {
+        showNotification('Cannot make move - not connected to server', 'danger', true);
     }
 }
 
@@ -879,6 +1004,11 @@ function updateGamesList(games) {
                         return;
                     }
                     
+                    if (!socket || !socket.connected) {
+                        showNotification('Cannot join game - not connected to server', 'danger', true);
+                        return;
+                    }
+                    
                     console.log('Joining game:', game.id);
                     socket.emit('join-game', {
                         gameId: game.id,
@@ -969,7 +1099,7 @@ function hideGameScreen() {
     updateTurnIndicator();
     
     // Get updated games list
-    if (socket) {
+    if (socket && socket.connected) {
         socket.emit('get-games');
     }
 }
@@ -1205,7 +1335,9 @@ function hideRematchRequest() {
 
 function loadUserStats() {
     // Request stats from server only
-    socket.emit('get-stats', { username: username });
+    if (socket && socket.connected) {
+        socket.emit('get-stats', { username: username });
+    }
     
     // Also load from localStorage as backup
     const savedStats = localStorage.getItem(`tic-tac-toe-stats-${username}`);
@@ -1287,3 +1419,25 @@ function clearNotifications() {
     updateNotificationsPanel();
     showNotification('All notifications cleared', 'info', false);
 }
+
+// Handle page visibility changes
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        console.log('Page hidden');
+    } else {
+        console.log('Page visible again');
+        // Check connection when page becomes visible again
+        if (socket && !socket.connected) {
+            console.log('Attempting to reconnect...');
+            socket.connect();
+        }
+    }
+});
+
+// Handle page unload
+window.addEventListener('beforeunload', function() {
+    if (socket && socket.connected) {
+        // Gracefully disconnect
+        socket.disconnect();
+    }
+});
