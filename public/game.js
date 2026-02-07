@@ -1098,4 +1098,41 @@ function updateStatsDisplay() {
             </div>
             <div class="col-6">
                 <div class="p-3 bg-dark rounded stats-card">
-                    <div class="h2
+                    <div class="h2 mb-1 text-info">${winRate}%</div>
+                    <small>Win Rate</small>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function loadNotifications() {
+    const savedNotifications = localStorage.getItem(`tic-tac-toe-notifications-${username}`);
+    if (savedNotifications) {
+        notifications = JSON.parse(savedNotifications);
+        updateNotificationsBadge();
+    }
+}
+
+function saveNotifications() {
+    if (username) {
+        localStorage.setItem(`tic-tac-toe-notifications-${username}`, JSON.stringify(notifications));
+    }
+}
+
+function updateNotificationsBadge() {
+    const unreadCount = notifications.filter(n => !n.read).length;
+    const badge = document.getElementById('notifications-badge');
+    if (badge) {
+        badge.textContent = unreadCount;
+        badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+    }
+}
+
+function clearNotifications() {
+    notifications = [];
+    saveNotifications();
+    updateNotificationsBadge();
+    updateNotificationsPanel();
+    showNotification('All notifications cleared', 'info', false);
+}
