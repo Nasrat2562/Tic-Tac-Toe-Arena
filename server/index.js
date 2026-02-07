@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,10 +14,8 @@ const io = socketIo(server, {
     }
 });
 
-// Get the absolute path to the public directory
 const publicPath = path.resolve(__dirname, '../public');
 
-// Serve static files from the public directory
 app.use(express.static(publicPath, {
     setHeaders: (res, filePath) => {
         const ext = path.extname(filePath);
@@ -35,7 +32,6 @@ app.use(express.static(publicPath, {
     }
 }));
 
-// Game management
 const games = {};
 const users = {};
 const userStatistics = {};
@@ -43,7 +39,6 @@ const userStatistics = {};
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
     
-    // Register user
     socket.on('register-user', (username) => {
         if (!username || username.trim() === '') {
             socket.emit('error', 'Please enter a name');
@@ -54,7 +49,6 @@ io.on('connection', (socket) => {
         users[socket.id] = name;
         socket.username = name;
         
-        // Initialize user stats if not exists
         if (!userStatistics[name]) {
             userStatistics[name] = {
                 gamesPlayed: 0,
@@ -72,7 +66,6 @@ io.on('connection', (socket) => {
         broadcastGames();
     });
     
-    // Create game
     socket.on('create-game', ({ host, name }) => {
         if (!socket.username) {
             socket.emit('error', 'Please register first');
@@ -103,7 +96,6 @@ io.on('connection', (socket) => {
         broadcastGames();
     });
     
-    // Join game
     socket.on('join-game', ({ gameId, player }) => {
         if (!socket.username) {
             socket.emit('error', 'Please register first');
@@ -126,7 +118,6 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Add player
         game.players.push(socket.username);
         game.status = 'playing';
         game.playerCount = 2;
@@ -137,18 +128,15 @@ io.on('connection', (socket) => {
         
         console.log(`${socket.username} joined ${game.name}`);
         
-        // Reset game state for both players
         game.board = Array(9).fill('');
         game.currentPlayer = 'X';
         game.winner = null;
         
-        // Notify ALL players that game has started
         io.to(gameId).emit('game-started', game);
         
         broadcastGames();
     });
     
-    // Make move
     socket.on('make-move', ({ gameId, cellIndex, player }) => {
         const game = games[gameId];
         if (!game || !socket.username) return;
@@ -161,7 +149,6 @@ io.on('connection', (socket) => {
         const playerIndex = game.players.indexOf(socket.username);
         const playerSymbol = playerIndex === 0 ? 'X' : 'O';
         
-        // Validate
         if (game.currentPlayer !== playerSymbol) {
             socket.emit('error', 'Not your turn');
             return;
@@ -172,10 +159,8 @@ io.on('connection', (socket) => {
             return;
         }
         
-        // Make move
         game.board[cellIndex] = playerSymbol;
         
-        // Check win
         const result = checkWin(game.board);
         let gameOver = false;
         let winner = null;
@@ -219,13 +204,11 @@ io.on('connection', (socket) => {
             }
             game.winner = winner;
         } else {
-            // Switch turn
             game.currentPlayer = game.currentPlayer === 'X' ? 'O' : 'X';
         }
         
         console.log(`${socket.username} moved ${playerSymbol} to ${cellIndex}. Next: ${game.currentPlayer}. Game over: ${gameOver}`);
         
-        // Broadcast to all in game
         io.to(gameId).emit('move-made', {
             cellIndex: cellIndex,
             symbol: playerSymbol,
@@ -238,57 +221,46 @@ io.on('connection', (socket) => {
         broadcastGames();
     });
     
-    // Get games
     socket.on('get-games', () => {
-        console.log(`Sending games list to ${socket.username}`);
         broadcastGames(socket);
     });
     
-    // Leave game - FIXED: Properly handle when both players leave
     socket.on('leave-game', ({ gameId, player }) => {
         if (games[gameId] && socket.username) {
             const game = games[gameId];
             const leavingUsername = socket.username;
             
-            // Check if player is actually in the game
             if (!game.players.includes(leavingUsername)) {
                 socket.emit('error', 'You are not in this game');
                 return;
             }
             
-            // Remove player from game
             game.players = game.players.filter(p => p !== leavingUsername);
             game.playerCount = game.players.length;
             
             console.log(`${leavingUsername} leaving game ${gameId}. Remaining players: ${game.players}`);
             
             if (game.players.length === 0) {
-                // No players left - delete the game
-                console.log(`Game ${gameId} has no players left. Deleting game.`);
                 delete games[gameId];
                 
-                // Notify the leaving player
                 socket.emit('player-left-self', { 
                     message: 'You left the game',
                     gameId: gameId,
                     gameDeleted: true
                 });
             } else {
-                // Still players in the game
                 game.status = 'waiting';
                 game.board = Array(9).fill('');
                 game.currentPlayer = 'X';
                 game.winner = null;
                 game.rematchRequests.clear();
                 
-                // Notify remaining players
                 socket.to(gameId).emit('player-left', { 
                     player: leavingUsername,
                     message: `${leavingUsername} left the game`,
                     gameId: gameId
                 });
                 
-                // Notify the leaving player
                 socket.emit('player-left-self', { 
                     message: 'You left the game',
                     gameId: gameId,
@@ -299,12 +271,49 @@ io.on('connection', (socket) => {
             socket.leave(gameId);
             socket.currentGameId = null;
             broadcastGames();
-            
-            console.log(`${leavingUsername} left game ${gameId}`);
         }
     });
     
-    // Request rematch
+    // NEW: Force opponent to return to lobby when player chooses "New Game"
+    socket.on('return-to-lobby', ({ gameId, player }) => {
+        const game = games[gameId];
+        if (!game || !socket.username) {
+            socket.emit('error', 'Game not found');
+            return;
+        }
+        
+        if (!game.players.includes(socket.username)) {
+            socket.emit('error', 'You are not in this game');
+            return;
+        }
+        
+        console.log(`${socket.username} returning to lobby from game ${gameId}`);
+        
+        // Clear any pending rematch requests
+        game.rematchRequests.clear();
+        
+        // Notify opponent to also return to lobby
+        const opponent = game.players.find(p => p !== socket.username);
+        if (opponent) {
+            const opponentSocket = getSocketByUsername(opponent);
+            if (opponentSocket) {
+                console.log(`Notifying ${opponent} to return to lobby`);
+                opponentSocket.emit('opponent-returned-to-lobby', {
+                    gameId: gameId,
+                    player: socket.username
+                });
+            }
+        }
+        
+        // Don't delete the game - just reset it
+        game.status = 'waiting';
+        game.board = Array(9).fill('');
+        game.currentPlayer = 'X';
+        game.winner = null;
+        
+        broadcastGames();
+    });
+    
     socket.on('request-rematch', ({ gameId, player }) => {
         const game = games[gameId];
         if (!game || !socket.username) {
@@ -335,6 +344,11 @@ io.on('connection', (socket) => {
                     player: socket.username,
                     gameId: gameId
                 });
+            } else {
+                console.log(`Opponent ${opponent} not connected, cannot send rematch request`);
+                socket.emit('error', 'Opponent is not connected');
+                game.rematchRequests.delete(socket.username);
+                return;
             }
         }
         
@@ -345,7 +359,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Accept rematch
     socket.on('accept-rematch', ({ gameId, player }) => {
         const game = games[gameId];
         if (!game || !socket.username) return;
@@ -357,6 +370,19 @@ io.on('connection', (socket) => {
         
         console.log(`${socket.username} accepted rematch for game ${gameId}`);
         
+        // Check if opponent is still in the game (hasn't returned to lobby)
+        const opponent = game.players.find(p => p !== socket.username);
+        if (!opponent) {
+            socket.emit('error', 'Opponent has left the game');
+            return;
+        }
+        
+        const opponentSocket = getSocketByUsername(opponent);
+        if (!opponentSocket) {
+            socket.emit('error', 'Opponent is not connected');
+            return;
+        }
+        
         game.rematchRequests.add(socket.username);
         
         if (game.rematchRequests.size === 2) {
@@ -364,7 +390,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Reject rematch
     socket.on('reject-rematch', ({ gameId, player }) => {
         const game = games[gameId];
         if (!game || !socket.username) return;
@@ -387,7 +412,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Chat message
     socket.on('chat-message', (data) => {
         const { gameId, sender, message } = data;
         const game = games[gameId];
@@ -418,7 +442,6 @@ io.on('connection', (socket) => {
         });
     });
     
-    // Get user stats
     socket.on('get-stats', ({ username }) => {
         if (userStatistics[username]) {
             socket.emit('user-stats', userStatistics[username]);
@@ -434,19 +457,10 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Update user stats
-    socket.on('update-stats', ({ username, stats }) => {
-        if (!userStatistics[username] || stats.gamesPlayed > userStatistics[username].gamesPlayed) {
-            userStatistics[username] = { ...stats };
-        }
-    });
-    
-    // Heartbeat
     socket.on('heartbeat', () => {
         socket.emit('heartbeat-response', { timestamp: Date.now() });
     });
     
-    // Disconnect - FIXED: Properly handle when both players disconnect
     socket.on('disconnect', (reason) => {
         console.log(`${socket.username || 'Anonymous'} disconnected. Reason: ${reason}`);
         
@@ -461,19 +475,14 @@ io.on('connection', (socket) => {
                 console.log(`${leavingPlayer} disconnected from game ${socket.currentGameId}. Remaining players: ${game.players}`);
                 
                 if (game.players.length === 0) {
-                    // No players left - delete the game
-                    console.log(`Game ${socket.currentGameId} has no players left. Deleting game.`);
                     delete games[socket.currentGameId];
                 } else {
-                    // Still players in the game
                     game.status = 'waiting';
                     game.board = Array(9).fill('');
                     game.currentPlayer = 'X';
                     game.winner = null;
                     game.rematchRequests.clear();
                     
-                    // Notify remaining players
-                    console.log(`Notifying remaining players in game ${socket.currentGameId} that ${leavingPlayer} disconnected`);
                     io.to(socket.currentGameId).emit('player-left', { 
                         player: leavingPlayer,
                         message: `${leavingPlayer} disconnected`,
@@ -488,11 +497,9 @@ io.on('connection', (socket) => {
         delete users[socket.id];
     });
     
-    // Helper functions
     function broadcastGames(targetSocket = null) {
-        // Only include games that actually have at least one player
         const availableGames = Object.values(games)
-            .filter(game => game.players.length > 0) // CRITICAL FIX: Only show games with players
+            .filter(game => game.players.length > 0)
             .map(game => ({
                 id: game.id,
                 name: game.name,
@@ -549,6 +556,24 @@ io.on('connection', (socket) => {
         const game = games[gameId];
         if (!game) return;
         
+        // Check if both players are still connected
+        for (const player of game.players) {
+            const playerSocket = getSocketByUsername(player);
+            if (!playerSocket) {
+                console.log(`Player ${player} not connected, cannot start rematch`);
+                
+                // Notify the other player
+                const otherPlayer = game.players.find(p => p !== player);
+                if (otherPlayer) {
+                    const otherSocket = getSocketByUsername(otherPlayer);
+                    if (otherSocket) {
+                        otherSocket.emit('error', 'Opponent is not connected');
+                    }
+                }
+                return;
+            }
+        }
+        
         game.board = Array(9).fill('');
         game.currentPlayer = 'X';
         game.status = 'playing';
@@ -562,13 +587,11 @@ io.on('connection', (socket) => {
         broadcastGames();
     }
     
-    // Send initial games list
     setTimeout(() => {
         broadcastGames(socket);
     }, 1000);
 });
 
-// Health check with stats
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
@@ -580,7 +603,6 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Get user stats API
 app.get('/api/stats/:username', (req, res) => {
     const username = req.params.username;
     if (userStatistics[username]) {
@@ -590,7 +612,6 @@ app.get('/api/stats/:username', (req, res) => {
     }
 });
 
-// Serve index.html for all routes
 app.get('*', (req, res) => {
     const filePath = path.join(publicPath, 'index.html');
     res.setHeader('Content-Type', 'text/html');
