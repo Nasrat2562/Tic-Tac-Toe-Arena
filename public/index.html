@@ -7,46 +7,73 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
+        /* Theme variables - Fixed for visibility */
         :root {
             --primary-color: #4361ee;
             --secondary-color: #3a0ca3;
             --accent-color: #7209b7;
             --success-color: #4cc9f0;
             --warning-color: #f72585;
-            --dark-bg: #0a0a0a;
+            --dark-bg: #121212;
             --light-bg: #f8f9fa;
-            --card-bg: rgba(255, 255, 255, 0.05);
+            --card-bg: #1e1e1e;
             --text-light: #ffffff;
             --text-dark: #212529;
+            --border-light: #dee2e6;
+            --border-dark: #343a40;
         }
         
         [data-theme="dark"] {
             --bg-color: var(--dark-bg);
             --text-color: var(--text-light);
-            --card-bg: rgba(255, 255, 255, 0.05);
+            --card-bg: #1e1e1e;
+            --border-color: var(--border-dark);
+            --input-bg: #2d2d2d;
+            --input-color: var(--text-light);
+            --dropdown-bg: #2d2d2d;
+            --dropdown-color: var(--text-light);
         }
         
         [data-theme="light"] {
             --bg-color: var(--light-bg);
             --text-color: var(--text-dark);
-            --card-bg: rgba(0, 0, 0, 0.03);
+            --card-bg: #ffffff;
+            --border-color: var(--border-light);
+            --input-bg: #ffffff;
+            --input-color: var(--text-dark);
+            --dropdown-bg: #ffffff;
+            --dropdown-color: var(--text-dark);
         }
         
+        /* Base styles with theme support */
         body {
-            background: var(--bg-color);
-            color: var(--text-color);
+            background: var(--bg-color) !important;
+            color: var(--text-color) !important;
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             transition: all 0.3s ease;
         }
         
+        /* Fix text colors for all elements */
+        h1, h2, h3, h4, h5, h6, p, span, div, label, small {
+            color: var(--text-color) !important;
+        }
+        
+        /* Fix text-muted class */
+        .text-muted {
+            color: var(--text-color) !important;
+            opacity: 0.7;
+        }
+        
+        /* Glass card with theme support */
         .glass-card {
-            background: var(--card-bg);
+            background: var(--card-bg) !important;
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-color) !important;
             border-radius: 20px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
             transition: all 0.3s ease;
+            color: var(--text-color) !important;
         }
         
         .glass-card:hover {
@@ -54,6 +81,7 @@
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
         }
         
+        /* Game board */
         .game-board {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -67,9 +95,10 @@
             box-shadow: 0 10px 30px rgba(67, 97, 238, 0.2);
         }
         
+        /* Cells with theme support */
         .cell {
             aspect-ratio: 1;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--input-bg);
             border: 3px solid var(--primary-color);
             border-radius: 15px;
             font-size: 4rem;
@@ -111,12 +140,12 @@
         }
         
         .cell.x {
-            color: #4cc9f0;
+            color: #4cc9f0 !important;
             text-shadow: 0 0 20px rgba(76, 201, 240, 0.7);
         }
         
         .cell.o {
-            color: #f72585;
+            color: #f72585 !important;
             text-shadow: 0 0 20px rgba(247, 37, 133, 0.7);
         }
         
@@ -147,6 +176,7 @@
             }
         }
         
+        /* Status indicator */
         .status-dot {
             width: 12px;
             height: 12px;
@@ -166,19 +196,27 @@
             box-shadow: 0 0 15px #dc3545;
         }
         
+        /* Chat box */
         .chat-box {
             height: 250px;
             overflow-y: auto;
-            background: var(--card-bg);
+            background: var(--input-bg);
             border-radius: 15px;
             padding: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-color) !important;
         }
         
+        /* Game items */
         .game-item {
             transition: all 0.3s ease;
             border-left: 5px solid transparent;
             background: var(--card-bg);
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
         }
         
         .game-item:hover {
@@ -187,6 +225,7 @@
             transform: translateX(5px);
         }
         
+        /* Turn indicator */
         .turn-indicator {
             font-size: 1.3rem;
             font-weight: 600;
@@ -194,6 +233,9 @@
             border-radius: 15px;
             display: inline-block;
             animation: fadeIn 0.5s ease;
+            background: var(--card-bg);
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color);
         }
         
         @keyframes fadeIn {
@@ -201,9 +243,12 @@
             to { opacity: 1; transform: translateY(0); }
         }
         
+        /* Stats cards */
         .stats-card {
             transition: all 0.3s ease;
             border: 2px solid transparent;
+            background: var(--card-bg) !important;
+            color: var(--text-color) !important;
         }
         
         .stats-card:hover {
@@ -211,6 +256,7 @@
             transform: translateY(-5px);
         }
         
+        /* Gradient text - only for decorative elements */
         .gradient-text {
             background: linear-gradient(45deg, #4361ee, #3a0ca3, #7209b7);
             -webkit-background-clip: text;
@@ -218,6 +264,7 @@
             background-clip: text;
         }
         
+        /* Buttons */
         .btn-primary {
             background: linear-gradient(45deg, #4361ee, #3a0ca3);
             border: none;
@@ -239,8 +286,70 @@
             border: none;
         }
         
+        /* Form controls */
+        .form-control {
+            background-color: var(--input-bg) !important;
+            color: var(--input-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        .form-control:focus {
+            background-color: var(--input-bg) !important;
+            color: var(--input-color) !important;
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.25);
+        }
+        
+        .form-label {
+            color: var(--text-color) !important;
+        }
+        
+        /* Alerts */
+        .alert {
+            background-color: var(--card-bg) !important;
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        .alert-secondary {
+            background-color: var(--input-bg) !important;
+        }
+        
+        /* Dropdowns */
+        .dropdown-menu {
+            background-color: var(--dropdown-bg) !important;
+            color: var(--dropdown-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        .dropdown-item {
+            color: var(--dropdown-color) !important;
+        }
+        
+        .dropdown-item:hover {
+            background-color: rgba(67, 97, 238, 0.1) !important;
+            color: var(--dropdown-color) !important;
+        }
+        
+        /* Cards */
+        .card {
+            background-color: var(--card-bg) !important;
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        .card-header {
+            background-color: var(--input-bg) !important;
+            color: var(--text-color) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+        
+        /* Notifications */
         .notification-toast {
             animation: slideInRight 0.3s ease-out;
+            background-color: var(--card-bg) !important;
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color) !important;
         }
         
         .rematch-request {
@@ -250,6 +359,56 @@
             z-index: 1000;
             min-width: 350px;
             animation: slideInRight 0.3s ease-out;
+            background-color: var(--card-bg) !important;
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Badges */
+        .badge {
+            color: white !important;
+        }
+        
+        /* Input groups */
+        .input-group-text {
+            background-color: var(--input-bg) !important;
+            color: var(--text-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Notifications dropdown */
+        .extra-small {
+            font-size: 0.7rem;
+            color: var(--text-color) !important;
+            opacity: 0.7;
+        }
+        
+        .notification-item {
+            transition: all 0.2s ease;
+            border-radius: 8px;
+            color: var(--text-color) !important;
+            padding: 10px;
+            margin-bottom: 5px;
+            background: var(--input-bg);
+        }
+        
+        .notification-item:hover {
+            background-color: rgba(67, 97, 238, 0.1);
+        }
+        
+        .notification-item.unread {
+            background-color: rgba(67, 97, 238, 0.05);
+            border-left: 3px solid var(--primary-color);
+        }
+        
+        .delete-notification {
+            opacity: 0.5;
+            transition: opacity 0.2s ease;
+            padding: 0.125rem 0.25rem;
+        }
+        
+        .delete-notification:hover {
+            opacity: 1;
         }
         
         /* Scrollbar Styling */
@@ -271,6 +430,40 @@
             background: var(--secondary-color);
         }
         
+        /* Chat popup notification */
+        .chat-popup-notification {
+            background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+            color: white !important;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            overflow: hidden;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+            max-width: 400px;
+            animation: slideInUp 0.3s ease-out;
+        }
+        
+        .chat-popup-notification:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            transition: all 0.2s ease;
+        }
+        
+        @keyframes slideInUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
         /* Responsive Design */
         @media (max-width: 768px) {
             .game-board {
@@ -288,51 +481,72 @@
                 right: 10px;
                 min-width: auto;
             }
+            
+            .dropdown-menu {
+                min-width: 300px;
+                max-width: 350px;
+                right: 0;
+                left: auto;
+            }
+            
+            .chat-popup-notification {
+                min-width: 250px;
+                max-width: 300px;
+                bottom: 10px;
+                right: 10px;
+            }
         }
-        /* Add to existing CSS */
-.extra-small {
-    font-size: 0.7rem;
-}
-
-.notification-item {
-    transition: all 0.2s ease;
-    border-radius: 8px;
-}
-
-.notification-item:hover {
-    background-color: rgba(67, 97, 238, 0.1);
-}
-
-.notification-item.unread {
-    background-color: rgba(67, 97, 238, 0.05);
-    border-left: 3px solid var(--primary-color);
-}
-
-.delete-notification {
-    opacity: 0.5;
-    transition: opacity 0.2s ease;
-    padding: 0.125rem 0.25rem;
-}
-
-.delete-notification:hover {
-    opacity: 1;
-}
-
-.dropdown-menu {
-    max-height: 400px;
-    overflow-y: auto;
-    min-width: 350px;
-    max-width: 400px;
-}
-
-@media (max-width: 768px) {
-    .dropdown-menu {
-        min-width: 300px;
-        max-width: 350px;
-        right: 0;
-        left: auto;
-    }
-}
+        
+        /* Footer */
+        footer {
+            color: var(--text-color) !important;
+            opacity: 0.7;
+        }
+        
+        /* Fix for all text elements */
+        .text-light, .text-dark, .text-white, .text-black, .text-body {
+            color: var(--text-color) !important;
+        }
+        
+        /* Ensure contrast for active elements */
+        .btn-outline-primary {
+            color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+        }
+        
+        .btn-outline-primary:hover {
+            color: white !important;
+            background-color: var(--primary-color) !important;
+        }
+        
+        .btn-outline-light {
+            color: var(--text-color) !important;
+            border-color: var(--border-color) !important;
+        }
+        
+        .btn-outline-light:hover {
+            color: var(--bg-color) !important;
+            background-color: var(--text-color) !important;
+        }
+        
+        /* Game result text */
+        #result-message {
+            color: var(--text-color) !important;
+        }
+        
+        /* Players info text */
+        #players-info span {
+            color: var(--text-color) !important;
+        }
+        
+        #players-info .text-warning {
+            color: #ffc107 !important;
+        }
+        
+        /* Fix spinner color */
+        .spinner-border.text-primary {
+            color: var(--primary-color) !important;
+        }
     </style>
 </head>
 <body data-theme="dark">
@@ -554,4 +768,3 @@
     <script src="game.js"></script>
 </body>
 </html>
-
