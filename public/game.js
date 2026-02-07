@@ -1,4 +1,3 @@
-
 // Game State
 let currentBoard = Array(9).fill('');
 let currentPlayer = 'X';
@@ -371,7 +370,11 @@ function initSocket() {
     socket.on('player-left', (data) => {
         console.log('Player left:', data);
         const { player, message } = data;
-        showNotification(message, 'warning', true);
+        
+        // Only show notification if it's not about ourselves
+        if (player !== username) {
+            showNotification(message, 'warning', true);
+        }
         
         if (currentGame) {
             currentGame.status = 'waiting';
@@ -383,11 +386,15 @@ function initSocket() {
     
     socket.on('player-left-self', (data) => {
         console.log('You left the game:', data);
-        showNotification(data.message, 'info', true);
+        // Only show notification and hide game screen
+        // Don't show notification if we're already showing "You left the game"
+        // from the leave button click
         
-        if (currentGame) {
-            hideGameScreen();
-        }
+        // Hide game screen immediately
+        hideGameScreen();
+        
+        // Show notification
+        showNotification(data.message, 'info', true);
     });
     
     socket.on('rematch-offered', (data) => {
@@ -531,15 +538,22 @@ function setupEventListeners() {
         }
     });
     
-    // Leave game
+    // Leave game - UPDATED to prevent duplicate notifications
     document.getElementById('leave-game').addEventListener('click', function() {
         if (currentGame) {
             if (confirm('Are you sure you want to leave this game?')) {
+                console.log('Leaving game:', currentGame.id);
+                // Hide game screen immediately
+                hideGameScreen();
+                
+                // Send leave event to server
                 socket.emit('leave-game', {
                     gameId: currentGame.id,
                     player: username
                 });
-                showNotification('You left the game', 'info', true);
+                
+                // Don't show notification here - server will send player-left-self
+                // This prevents duplicate "You left the game" notifications
             }
         }
     });
@@ -643,7 +657,7 @@ function showChatPopup(sender, message) {
         min-width: 300px;
         max-width: 400px;
         animation: slideInUp 0.3s ease-out;
-        background: linear-gradient(135deg, var(--bs-primary) 0%, var(--bs-info) 100%);
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
         color: white;
         border-radius: 10px;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
@@ -1273,5 +1287,3 @@ function clearNotifications() {
     updateNotificationsPanel();
     showNotification('All notifications cleared', 'info', false);
 }
-
-
