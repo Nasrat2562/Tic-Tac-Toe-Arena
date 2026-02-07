@@ -276,43 +276,76 @@ io.on('connection', (socket) => {
     
     // NEW: Force opponent to return to lobby when player chooses "New Game"
     socket.on('return-to-lobby', ({ gameId, player }) => {
-        const game = games[gameId];
-        if (!game || !socket.username) {
-            socket.emit('error', 'Game not found');
-            return;
-        }
+    const game = games[gameId];
+    if (!game || !socket.username) {
+        socket.emit('error', 'Game not found');
+        return;
+    }
+    
+    if (!game.players.includes(socket.username)) {
+        socket.emit('error', 'You are not in this game');
+        return;
+    }
+    
+    console.log(`${socket.username} returning to lobby from game ${gameId}`);
+    console.log(`Current players in game: ${game.players}`);
+    
+    // Remove player from the game
+    game.players = game.players.filter(p => p !== socket.username);
+    game.playerCount = game.players.length;
+    
+    console.log(`After removal - Players left: ${game.players}`);
+    
+    // Remove player from socket room
+    socket.leave(gameId);
+    socket.currentGameId = null;
+    
+    // Check if this was the last player
+    if (game.players.length === 0) {
+        // COMPLETELY DELETE THE GAME - This is the key fix!
+        console.log(`Game ${gameId} (${game.name}) has NO players left. DELETING game.`);
+        delete games[gameId];
         
-        if (!game.players.includes(socket.username)) {
-            socket.emit('error', 'You are not in this game');
-            return;
-        }
-        
-        console.log(`${socket.username} returning to lobby from game ${gameId}`);
-        
-        // Clear any pending rematch requests
-        game.rematchRequests.clear();
-        
-        // Notify opponent to also return to lobby
-        const opponent = game.players.find(p => p !== socket.username);
-        if (opponent) {
-            const opponentSocket = getSocketByUsername(opponent);
-            if (opponentSocket) {
-                console.log(`Notifying ${opponent} to return to lobby`);
-                opponentSocket.emit('opponent-returned-to-lobby', {
-                    gameId: gameId,
-                    player: socket.username
-                });
-            }
-        }
-        
-        // Don't delete the game - just reset it
+        // Notify player
+        socket.emit('player-left-self', {
+            message: 'You returned to lobby',
+            gameId: gameId,
+            gameDeleted: true
+        });
+    } else {
+        // There are still players in the game
         game.status = 'waiting';
         game.board = Array(9).fill('');
         game.currentPlayer = 'X';
         game.winner = null;
+        game.rematchRequests.clear();
         
-        broadcastGames();
-    });
+        // Notify remaining players
+        const opponent = game.players.find(p => p !== socket.username);
+        if (opponent) {
+            const opponentSocket = getSocketByUsername(opponent);
+            if (opponentSocket) {
+                console.log(`Notifying ${opponent} to also return to lobby`);
+                opponentSocket.emit('opponent-returned-to-lobby', {
+                    gameId: gameId,
+                    player: socket.username,
+                    gameStillExists: true
+                });
+            }
+        }
+        
+        // Notify the leaving player
+        socket.emit('player-left-self', {
+            message: 'You returned to lobby',
+            gameId: gameId,
+            gameDeleted: false
+        });
+    }
+    
+    // Always broadcast updated games list
+    broadcastGames();
+    console.log(`Games list updated after ${socket.username} returned to lobby`);
+});
     
     socket.on('request-rematch', ({ gameId, player }) => {
         const game = games[gameId];
@@ -498,26 +531,45 @@ io.on('connection', (socket) => {
     });
     
     function broadcastGames(targetSocket = null) {
-        const availableGames = Object.values(games)
-            .filter(game => game.players.length > 0)
-            .map(game => ({
-                id: game.id,
-                name: game.name,
-                host: game.host,
-                players: game.players,
-                playerCount: game.playerCount,
-                status: game.status,
-                winner: game.winner
-            }));
+    // CRITICAL: Only show games that actually have players AND are waiting
+    const availableGames = Object.values(games)
+        .filter(game => {
+            // Must have at least one player
+            const hasPlayers = game.players.length > 0;
+            // Must be waiting for players
+            const isWaiting = game.status === 'waiting';
+            // Must have room for more players
+            const hasRoom = game.playerCount < 2;
+            
+            const shouldShow = hasPlayers && isWaiting && hasRoom;
+            
+            if (!shouldShow && hasPlayers) {
+                console.log(`Game ${game.id} filtered out - Status: ${game.status}, Players: ${game.players}, PlayerCount: ${game.playerCount}`);
+            }
+            
+            return shouldShow;
+        })
+        .map(game => ({
+            id: game.id,
+            name: game.name,
+            host: game.host,
+            players: game.players,
+            playerCount: game.playerCount,
+            status: game.status,
+            winner: game.winner
+        }));
 
-        console.log(`Broadcasting ${availableGames.length} games to ${targetSocket ? 'single socket' : 'all'}`);
-        
-        if (targetSocket) {
-            targetSocket.emit('games-list', availableGames);
-        } else {
-            io.emit('games-list', availableGames);
-        }
+    console.log(`📋 Broadcasting ${availableGames.length} available games:`);
+    availableGames.forEach(game => {
+        console.log(`  - ${game.name} (${game.id}): ${game.playerCount}/2 players, Status: ${game.status}`);
+    });
+    
+    if (targetSocket) {
+        targetSocket.emit('games-list', availableGames);
+    } else {
+        io.emit('games-list', availableGames);
     }
+}
     
     function checkWin(board) {
         const winPatterns = [
@@ -624,3 +676,4 @@ server.listen(PORT, () => {
     console.log(`🌐 http://localhost:${PORT}`);
     console.log(`📁 Serving static files from: ${publicPath}`);
 });
+
