@@ -1,5 +1,4 @@
-[file name]: game.js
-[file content begin]
+
 // Game State
 let currentBoard = Array(9).fill('');
 let currentPlayer = 'X';
@@ -1274,4 +1273,5 @@ function clearNotifications() {
     updateNotificationsPanel();
     showNotification('All notifications cleared', 'info', false);
 }
-[file content end]
+
+
