@@ -415,26 +415,34 @@ function initSocket() {
     });
     
     // NEW: Handle when opponent returns to lobby
-    socket.on('opponent-returned-to-lobby', (data) => {
-        console.log('Opponent returned to lobby:', data);
-        const { gameId, player } = data;
-        
-        if (currentGame && currentGame.id === gameId) {
-            showNotification(`${player} returned to lobby. You should also return to lobby.`, 'info', true);
-            
-            // Hide the game result and rematch buttons
-            document.getElementById('game-result').style.display = 'none';
-            hideRematchRequest();
-            
-            // Return to lobby after 2 seconds
-            setTimeout(() => {
-                if (currentGame && currentGame.id === gameId) {
-                    hideGameScreen();
-                    showNotification('Returned to lobby since opponent left', 'info', true);
-                }
-            }, 2000);
-        }
-    });
+   socket.on('opponent-returned-to-lobby', (data) => {
+    console.log('Opponent returned to lobby:', data);
+    const { gameId, player, gameStillExists } = data;
+    
+    // Make sure this is for our current game
+    if (!currentGame || currentGame.id !== gameId) {
+        console.log('Not our current game, ignoring');
+        return;
+    }
+    
+    showNotification(`${player} returned to lobby. Returning to lobby...`, 'info', true);
+    
+    // Immediately hide game screen
+    hideGameScreen();
+    
+    // If game still exists on server (we're the last player), tell server we're also leaving
+    if (gameStillExists && socket.connected) {
+        console.log('Notifying server we are also returning to lobby');
+        socket.emit('return-to-lobby', {
+            gameId: gameId,
+            player: username
+        });
+    }
+    
+    // Clear any rematch request
+    hideRematchRequest();
+});
+
     
     socket.on('rematch-offered', (data) => {
         const { player, gameId } = data;
@@ -621,24 +629,34 @@ function setupEventListeners() {
         }
     });
     
-    // UPDATED: New Game button - now notifies opponent
     document.getElementById('new-game-btn').addEventListener('click', function() {
-        if (currentGame && socket && socket.connected) {
-            console.log('Returning to lobby from game:', currentGame.id);
-            
-            // Notify server that we're returning to lobby
-            socket.emit('return-to-lobby', {
-                gameId: currentGame.id,
-                player: username
-            });
-            
-            // Hide game screen immediately
-            hideGameScreen();
-            showNotification('Returned to lobby', 'info', true);
-        } else {
-            showNotification('Cannot return to lobby - not connected to server', 'danger', true);
-        }
-    });
+    if (currentGame && socket && socket.connected) {
+        console.log('Returning to lobby from game:', currentGame.id);
+        
+        // Store game info before we clear it
+        const gameId = currentGame.id;
+        const gameName = currentGame.name;
+        
+        // Notify server
+        socket.emit('return-to-lobby', {
+            gameId: gameId,
+            player: username
+        });
+        
+        console.log(`Requested to leave game: ${gameName} (${gameId})`);
+        
+        // Clear local state immediately
+        hideGameScreen();
+        showNotification('Returned to lobby', 'info', true);
+        
+    } else if (!socket || !socket.connected) {
+        showNotification('Cannot return to lobby - not connected to server', 'danger', true);
+    } else {
+        // No current game, just go to lobby
+        hideGameScreen();
+        showNotification('Returned to lobby', 'info', true);
+    }
+});
     
     document.getElementById('send-chat-btn').addEventListener('click', sendChatMessage);
     
@@ -1339,5 +1357,6 @@ window.addEventListener('beforeunload', function() {
         socket.disconnect();
     }
 });
+
 
 
