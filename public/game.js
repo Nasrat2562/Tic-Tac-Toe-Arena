@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initGameBoard();
     loadNotifications();
     initTheme();
+    initNotificationsDropdown(); // Initialize dropdown events
 });
 
 function initTheme() {
@@ -47,6 +48,114 @@ function updateThemeIcon(theme) {
     const themeIcon = document.getElementById('theme-icon');
     if (themeIcon) {
         themeIcon.className = theme === 'dark' ? 'bi bi-moon-fill' : 'bi bi-sun-fill';
+    }
+}
+
+function initNotificationsDropdown() {
+    const notificationsDropdown = document.getElementById('notificationsDropdown');
+    if (notificationsDropdown) {
+        notificationsDropdown.addEventListener('shown.bs.dropdown', function() {
+            updateNotificationsPanel();
+            markAllNotificationsAsRead();
+        });
+    }
+}
+
+function updateNotificationsPanel() {
+    const notificationsList = document.getElementById('notifications-list');
+    if (!notificationsList) return;
+    
+    if (notifications.length === 0) {
+        notificationsList.innerHTML = `
+            <div class="text-center text-muted p-3">
+                <i class="bi bi-bell-slash display-6 mb-3"></i>
+                <p class="mb-0">No notifications yet</p>
+                <small>Game events will appear here</small>
+            </div>
+        `;
+        return;
+    }
+    
+    let notificationsHTML = '';
+    
+    notifications.forEach(notification => {
+        const timeAgo = getTimeAgo(notification.timestamp);
+        const iconClass = getNotificationIcon(notification.type);
+        const readClass = notification.read ? '' : 'fw-bold';
+        
+        notificationsHTML += `
+            <div class="notification-item mb-3 p-2 border-bottom ${readClass}">
+                <div class="d-flex align-items-start">
+                    <i class="${iconClass} me-2 mt-1 text-${notification.type}"></i>
+                    <div class="flex-grow-1">
+                        <div class="small">${notification.message}</div>
+                        <div class="text-muted extra-small">${timeAgo}</div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger delete-notification" data-id="${notification.id}">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    notificationsList.innerHTML = notificationsHTML;
+    
+    // Add event listeners for delete buttons
+    document.querySelectorAll('.delete-notification').forEach(button => {
+        button.addEventListener('click', function() {
+            const notificationId = parseInt(this.getAttribute('data-id'));
+            deleteNotification(notificationId);
+        });
+    });
+}
+
+function deleteNotification(id) {
+    notifications = notifications.filter(n => n.id !== id);
+    saveNotifications();
+    updateNotificationsPanel();
+    updateNotificationsBadge();
+}
+
+function markAllNotificationsAsRead() {
+    let changed = false;
+    notifications.forEach(notification => {
+        if (!notification.read) {
+            notification.read = true;
+            changed = true;
+        }
+    });
+    
+    if (changed) {
+        saveNotifications();
+        updateNotificationsBadge();
+    }
+}
+
+function getTimeAgo(timestamp) {
+    const now = new Date();
+    const past = new Date(timestamp);
+    const diff = now - past;
+    
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    
+    return past.toLocaleDateString();
+}
+
+function getNotificationIcon(type) {
+    switch(type) {
+        case 'success': return 'bi bi-check-circle-fill';
+        case 'warning': return 'bi bi-exclamation-triangle-fill';
+        case 'danger': return 'bi bi-x-circle-fill';
+        case 'info': return 'bi bi-info-circle-fill';
+        default: return 'bi bi-bell-fill';
     }
 }
 
@@ -802,6 +911,12 @@ function showNotification(message, type = 'info', store = false) {
         
         saveNotifications();
         updateNotificationsBadge();
+        
+        // Update panel if it's open
+        const notificationsList = document.getElementById('notifications-list');
+        if (notificationsList && document.querySelector('.dropdown-menu.show')) {
+            updateNotificationsPanel();
+        }
     }
     
     // Create floating notification
@@ -945,7 +1060,9 @@ function loadNotifications() {
 }
 
 function saveNotifications() {
-    localStorage.setItem(`tic-tac-toe-notifications-${username}`, JSON.stringify(notifications));
+    if (username) {
+        localStorage.setItem(`tic-tac-toe-notifications-${username}`, JSON.stringify(notifications));
+    }
 }
 
 function updateNotificationsBadge() {
@@ -961,5 +1078,6 @@ function clearNotifications() {
     notifications = [];
     saveNotifications();
     updateNotificationsBadge();
+    updateNotificationsPanel();
     showNotification('Notifications cleared', 'info', true);
 }
