@@ -1,3 +1,5 @@
+[file name]: index.js
+[file content begin]
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -259,7 +261,17 @@ io.on('connection', (socket) => {
                 game.currentPlayer = 'X';
                 game.winner = null;
                 game.rematchRequests.clear();
-                io.to(gameId).emit('player-left', socket.username);
+                
+                // Notify remaining players with proper message
+                io.to(gameId).emit('player-left', { 
+                    player: socket.username,
+                    message: `${socket.username} left the game`
+                });
+                
+                // Notify the leaving player with a different message
+                socket.emit('player-left-self', { 
+                    message: 'You left the game'
+                });
             }
             
             socket.leave(gameId);
@@ -385,8 +397,16 @@ io.on('connection', (socket) => {
             timestamp: new Date().toISOString()
         });
         
-        // Then broadcast to other players in the game
+        // Then broadcast to other players in the game with type for popup
         socket.to(gameId).emit('chat-message', {
+            sender: sender,
+            message: message,
+            timestamp: new Date().toISOString(),
+            type: 'popup' // Add type to distinguish regular chat from popup
+        });
+        
+        // Also send a special popup notification for chat messages
+        socket.to(gameId).emit('chat-popup-notification', {
             sender: sender,
             message: message,
             timestamp: new Date().toISOString()
@@ -435,7 +455,12 @@ io.on('connection', (socket) => {
                 game.currentPlayer = 'X';
                 game.winner = null;
                 game.rematchRequests.clear();
-                io.to(socket.currentGameId).emit('player-left', socket.username);
+                
+                // Notify remaining players
+                io.to(socket.currentGameId).emit('player-left', { 
+                    player: socket.username,
+                    message: `${socket.username} disconnected from the game`
+                });
             }
             
             broadcastGames();
@@ -555,3 +580,4 @@ server.listen(PORT, () => {
     console.log(`🌐 http://localhost:${PORT}`);
     console.log(`📁 Serving static files from: ${publicPath}`);
 });
+[file content end]
