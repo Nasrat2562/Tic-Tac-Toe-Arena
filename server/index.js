@@ -92,7 +92,7 @@ io.on('connection', (socket) => {
         socket.join(gameId);
         socket.currentGameId = gameId;
         
-        console.log(`Game created: ${gameName}`);
+        console.log(`Game created: ${gameName} by ${socket.username}`);
         socket.emit('game-created', games[gameId]);
         broadcastGames();
     });
@@ -240,6 +240,7 @@ io.on('connection', (socket) => {
     
     // Get games
     socket.on('get-games', () => {
+        console.log(`Sending games list to ${socket.username}`);
         broadcastGames(socket);
     });
     
@@ -296,11 +297,16 @@ io.on('connection', (socket) => {
             // Find opponent's socket
             const opponentSocket = getSocketByUsername(opponent);
             if (opponentSocket) {
+                console.log(`Sending rematch offer to ${opponent} from ${socket.username}`);
                 opponentSocket.emit('rematch-offered', {
                     player: socket.username,
                     gameId: gameId
                 });
+            } else {
+                console.log(`Could not find socket for opponent: ${opponent}`);
             }
+        } else {
+            console.log('No opponent found for rematch request');
         }
         
         // Check if both players have requested rematch
@@ -451,6 +457,8 @@ io.on('connection', (socket) => {
                 winner: game.winner
             }));
 
+        console.log(`Broadcasting ${availableGames.length} games to ${targetSocket ? 'single socket' : 'all'}`);
+        
         if (targetSocket) {
             targetSocket.emit('games-list', availableGames);
         } else {
@@ -508,7 +516,9 @@ io.on('connection', (socket) => {
     }
     
     // Send initial games list
-    broadcastGames(socket);
+    setTimeout(() => {
+        broadcastGames(socket);
+    }, 1000);
 });
 
 // Health check with stats
